@@ -41,7 +41,7 @@ function showToast(msg, duration = 4000) {
 
 // ── 3D Chat Bubble (canvas texture → sprite) ──
 let chatSprite = null;
-let chatAnim = { active: false, timer: 0, duration: 3.0, fadeIn: 0.4, fadeOut: 0.4 };
+let chatAnim = { active: false, timer: 0, duration: 3.0, fadeIn: 0.4, fadeOut: 0.4, baseY: 1.75 };
 
 function createChatTexture(msg) {
   const canvas = document.createElement('canvas');
@@ -117,14 +117,107 @@ function showChatBubble(msg) {
   const spriteH = 0.22;
   chatSprite.scale.set(spriteH * aspect, spriteH, 1);
 
-  // Position to the right of Po's head
-  chatSprite.position.set(0.35, 1.75, 1.0);
+  // Position to the right of Po's head (Desktop) or above head (Mobile/Portrait)
+  const isPortrait = window.innerWidth < window.innerHeight;
+  if (isTouchDevice || isPortrait) {
+    chatAnim.baseY = 1.95;
+    chatSprite.position.set(0, chatAnim.baseY, 1.0);
+  } else {
+    chatAnim.baseY = 1.75;
+    chatSprite.position.set(0.6, chatAnim.baseY, 1.0);
+  }
   chatSprite.renderOrder = 999;
   scene.add(chatSprite);
 
   chatAnim.active = true;
   chatAnim.timer = 0;
 }
+
+// ── 3D Interactive Tiles (Credits) ──
+const clickableTiles = [];
+function createCreditTile(text, url, pos) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const w = 400, h = 100;
+  canvas.width = w; canvas.height = h;
+
+  // Background - Rounded Rect with Gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, '#2a2a4a');
+  grad.addColorStop(1, '#1a1a2e');
+  ctx.fillStyle = grad;
+  
+  const r = 24;
+  ctx.beginPath();
+  ctx.moveTo(r, 0);
+  ctx.lineTo(w - r, 0);
+  ctx.quadraticCurveTo(w, 0, w, r);
+  ctx.lineTo(w, h - r);
+  ctx.quadraticCurveTo(w, h, w - r, h);
+  ctx.lineTo(r, h);
+  ctx.quadraticCurveTo(0, h, 0, h - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Glow Border
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Text using Go3v2 font
+  ctx.fillStyle = '#ffffff';
+  let fontSize = 34;
+  ctx.font = `${fontSize}px "Go3v2", Inter, sans-serif`;
+  
+  // Auto-shrink font if text is too wide
+  const maxTextWidth = w - 60; // 30px padding on each side
+  let metrics = ctx.measureText(text);
+  if (metrics.width > maxTextWidth) {
+    fontSize = Math.floor(fontSize * (maxTextWidth / metrics.width));
+    ctx.font = `${fontSize}px "Go3v2", Inter, sans-serif`;
+  }
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Shadow for text
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 6;
+  ctx.shadowOffsetY = 3;
+  ctx.fillText(text, w / 2, h / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const mat = new THREE.MeshStandardMaterial({ 
+    map: texture, 
+    transparent: true, 
+    roughness: 0.3,
+    metalness: 0.5,
+    emissive: 0x000000,
+    emissiveIntensity: 1
+  });
+  
+  // Size: 1.1 x 0.275
+  const geo = new THREE.PlaneGeometry(1.1, 0.275);
+  const mesh = new THREE.Mesh(geo, mat);
+  
+  mesh.position.copy(pos);
+  mesh.rotation.x = -Math.PI / 2.5; // Tilt up 
+  mesh.userData = { url, hover: false, baseY: pos.y, phase: Math.random() * Math.PI * 2 };
+  
+  scene.add(mesh);
+  clickableTiles.push(mesh);
+}
+
+// Create tiles once on startup - Near Po's feet
+setTimeout(() => {
+  // Near feet (Z=0.8), slightly raised (Y=0.15)
+  createCreditTile('Po 3D Model', 'https://sketchfab.com/3d-models/po-from-kung-fu-panda-rigged-bef71a2b1dbd4a449c639fdf1776db7b', new THREE.Vector3(-0.9, 0.15, 0.8));
+  createCreditTile('Contact Developer', 'https://www.linkedin.com/in/somenath-mondal-xr-tech/', new THREE.Vector3(0.9, 0.15, 0.8));
+  
+  // Reposition them immediately after creation based on current screen size
+  resize();
+}, 1000);
 
 let modelsLoaded = 0;
 function onModelLoaded() {
@@ -225,8 +318,12 @@ renderer.toneMappingExposure = 0.9;
 
 // ── Camera ──
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-camera.position.set(0, 1.4, 4.5);
-camera.lookAt(0, 1.0, 0);
+const baseCameraPos = new THREE.Vector3(0, 1.4, 4.5);
+const baseCameraLookAt = new THREE.Vector3(0, 1.0, 0);
+const cameraTargetPos = new THREE.Vector3().copy(baseCameraPos);
+const cameraTargetLookAt = new THREE.Vector3().copy(baseCameraLookAt);
+camera.position.copy(baseCameraPos);
+camera.lookAt(baseCameraLookAt);
 
 function resize() {
   const w = panel.clientWidth;
@@ -234,15 +331,43 @@ function resize() {
   renderer.setSize(w, h);
   camera.aspect = w / h;
 
+  const isMobile = w < 768;
+
+  // Reposition tiles based on screen width
+  if (clickableTiles.length >= 2) {
+    const tile1 = clickableTiles[0];
+    const tile2 = clickableTiles[1];
+    
+    if (isMobile) {
+      // Stack vertically in a middle ground position
+      tile1.position.set(0, 0.15, 1.8);
+      tile2.position.set(0, 0.15, 2.3);
+      tile1.userData.baseY = 0.15;
+      tile2.userData.baseY = 0.15;
+    } else {
+      // Spread horizontally near feet
+      tile1.position.set(-0.9, 0.15, 0.8);
+      tile2.position.set(0.9, 0.15, 0.8);
+      tile1.userData.baseY = 0.15;
+      tile2.userData.baseY = 0.15;
+    }
+  }
+
   // Portrait (mobile): widen FOV and pull back so Po + sky + bamboo are visible
   if (w < h) {
     camera.fov = 48;
-    camera.position.set(0, 1.5, 5.5);
-    camera.lookAt(0, 1.1, 0);
+    baseCameraPos.set(0, 1.5, 5.5);
+    baseCameraLookAt.set(0, 1.1, 0);
   } else {
     camera.fov = 32;
-    camera.position.set(0, 1.4, 4.5);
-    camera.lookAt(0, 1.0, 0);
+    baseCameraPos.set(0, 1.4, 4.5);
+    baseCameraLookAt.set(0, 1.0, 0);
+  }
+
+  // Update targets if not currently animating (this prevents jumps, but allows settle)
+  if (eat.state === 'tracking' || eat.state === 'respawn') {
+    cameraTargetPos.copy(baseCameraPos);
+    cameraTargetLookAt.copy(baseCameraLookAt);
   }
 
   camera.updateProjectionMatrix();
@@ -342,7 +467,7 @@ rimLight.position.set(0, 2, -3);
 scene.add(rimLight);
 
 // ── Ground plane ──
-const groundGeo = new THREE.PlaneGeometry(20, 20);
+const groundGeo = new THREE.PlaneGeometry(40, 40);
 const groundMat = new THREE.MeshStandardMaterial({
   color: 0x8db87a,
   roughness: 0.95,
@@ -357,8 +482,8 @@ scene.add(ground);
 // ── Procedural Grass with GPU wind ──
 {
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
-  const GRASS_COUNT = isMobile ? 100000 : 500000;
-  const SPREAD = 20;
+  const GRASS_COUNT = isMobile ? 300000 : 600000;
+  const SPREAD = 40;
   const CLEAR_RADIUS = 0.6;
 
   const grassGeo = new THREE.ConeGeometry(0.008, 0.35, 3);
@@ -634,27 +759,28 @@ loader.load('models/bamboo.glb', (gltf) => {
   function rand(min, max) { return min + seededRandom() * (max - min); }
 
   const placements = [];
-  const TOTAL = isMobileDevice ? 25 : 50;
-  const CLEAR_RADIUS = 1.8; // keep Po visible
+  const TOTAL = isMobileDevice ? 80 : 120;
+  const CLEAR_RADIUS = 2.0; // keep Po visible
 
   for (let i = 0; i < TOTAL; i++) {
     let x, z, attempts = 0;
     do {
-      x = rand(-6, 6);
-      z = rand(-6, 1);
+      // Widen the area: X (-12 to 12), Z (-15 to 1)
+      x = rand(-12, 12);
+      z = rand(-15, 1);
       attempts++;
     } while (Math.sqrt(x * x + z * z) < CLEAR_RADIUS && attempts < 30);
 
-    // Farther back = smaller scale (depth cue)
+    // Farther back = slightly smaller but still visible
     const depth = Math.abs(z);
-    const scale = rand(0.5, 1.1) * (1 - depth * 0.08);
+    const scale = rand(0.6, 1.2) * (1 - Math.min(depth * 0.04, 0.6));
 
     placements.push({
       x,
       z,
-      scale: Math.max(scale, 0.3),
+      scale: Math.max(scale, 0.4),
       rotY: rand(-Math.PI, Math.PI),
-      scaleY: rand(0.85, 1.2), // height variation
+      scaleY: rand(0.85, 1.3), // height variation
     });
   }
 
@@ -706,14 +832,30 @@ function clamp(val, min, max) {
   return Math.max(min, Math.min(max, val));
 }
 
-// ── Mouse tracking ──
-// Store both NDC (for head/spine) and raw pixel (for raycasting eyes)
+// ── Raycaster & Input ──
+const raycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
 const mouseWorld = new THREE.Vector3();
-const raycaster = new THREE.Raycaster();
 
 // Invisible plane at Z=2 for the cursor to "land" on
 const cursorPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1);
+
+// Handle clicks on 3D tiles
+document.addEventListener('click', (e) => {
+  if (clickableTiles.length === 0) return;
+  
+  const rect = canvas.getBoundingClientRect();
+  mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(mouseNDC, camera);
+  const intersects = raycaster.intersectObjects(clickableTiles);
+  
+  if (intersects.length > 0) {
+    const url = intersects[0].object.userData.url;
+    if (url) window.open(url, '_blank');
+  }
+});
 
 document.addEventListener('mousemove', (e) => {
   // NDC relative to the canvas, not full viewport
@@ -728,20 +870,56 @@ document.addEventListener('mousemove', (e) => {
   // Unproject mouse into 3D world point on the cursor plane
   raycaster.setFromCamera(mouseNDC, camera);
   raycaster.ray.intersectPlane(cursorPlane, mouseWorld);
+
+  // Hover effect for tiles
+  let found = false;
+  if (clickableTiles.length > 0) {
+    const intersects = raycaster.intersectObjects(clickableTiles);
+    clickableTiles.forEach(tile => {
+      tile.userData.hover = false;
+    });
+    if (intersects.length > 0) {
+      intersects[0].object.userData.hover = true;
+      found = true;
+    }
+  }
+  document.body.style.cursor = found ? 'pointer' : 'none';
 });
 
 // ── Touch support ──
 let touchActive = false;
 
-function handleTouch(e) {
-  e.preventDefault();
+function handleTouchStart(e) {
+  // We don't preventDefault here immediately so clicks can still fire if needed,
+  // OR we handle the tile click manually right here.
   const touch = e.touches[0];
   if (!touch) return;
   touchActive = true;
 
   const rect = canvas.getBoundingClientRect();
+  
+  // 1. Check for tile clicks (NO offset - use exact touch point)
+  const touchNDC = new THREE.Vector2();
+  touchNDC.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+  touchNDC.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+  
+  raycaster.setFromCamera(touchNDC, camera);
+  const intersects = raycaster.intersectObjects(clickableTiles);
+  if (intersects.length > 0) {
+    const url = intersects[0].object.userData.url;
+    if (url) {
+      window.open(url, '_blank');
+      return; // Handled
+    }
+  }
+
+  // 2. Update general mouse/world position for the dumpling (WITH offset)
+  updateTouchPosition(touch, rect);
+}
+
+function updateTouchPosition(touch, rect) {
   // Offset upward so the dumpling appears above the finger, not under it
-  const offsetY = -60;
+  const offsetY = -80;
   mouseNDC.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
   mouseNDC.y = -((touch.clientY + offsetY - rect.top) / rect.height) * 2 + 1;
 
@@ -752,15 +930,19 @@ function handleTouch(e) {
   raycaster.ray.intersectPlane(cursorPlane, mouseWorld);
 }
 
+function handleTouchMove(e) {
+  e.preventDefault(); // Prevent scrolling while feeding
+  const touch = e.touches[0];
+  if (!touch) return;
+  updateTouchPosition(touch, canvas.getBoundingClientRect());
+}
+
 function handleTouchEnd(e) {
-  e.preventDefault();
-  // Keep mouseWorld at last position — don't reset
-  // This lets the dumpling stay put when finger lifts
   touchActive = false;
 }
 
-canvas.addEventListener('touchstart', handleTouch, { passive: false });
-canvas.addEventListener('touchmove', handleTouch, { passive: false });
+canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
 canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
 canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
@@ -775,6 +957,13 @@ function animate() {
 
   const delta = clock.getDelta();
   breathPhase += delta * 1.5;
+
+  // ── Camera Lerp ──
+  camera.position.lerp(cameraTargetPos, 0.02);
+  // Smoother lookAt lerp: compute target quat and slerp
+  const currentLookAt = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).add(camera.position);
+  currentLookAt.lerp(cameraTargetLookAt, 0.02);
+  camera.lookAt(currentLookAt);
 
   // ── Compute targets from mouse ──
   // Asymmetric Y: allow more downward tilt, less upward
@@ -991,6 +1180,27 @@ function animate() {
     });
   }
 
+  // ── Credit Tiles Animation ──
+  if (clickableTiles.length > 0) {
+    const time = clock.elapsedTime;
+    clickableTiles.forEach(tile => {
+      // Gentle floating animation
+      const hoverShift = tile.userData.hover ? 0.08 : 0;
+      const floatY = Math.sin(time * 1.5 + tile.userData.phase) * 0.02;
+      tile.position.y = lerp(tile.position.y, tile.userData.baseY + hoverShift + floatY, 0.1);
+
+      const targetScale = tile.userData.hover ? 1.12 : 1.0;
+      tile.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.1);
+      
+      // Update glow/emissive on hover
+      if (tile.material) {
+        const emissiveHex = tile.userData.hover ? 0x2a2a6a : 0x000000;
+        tile.material.emissive.lerp(new THREE.Color(emissiveHex), 0.1);
+        tile.material.emissiveIntensity = tile.userData.hover ? 1.5 : 0;
+      }
+    });
+  }
+
   // ── Dumpling + Eat state machine ──
   if (dumpling && bones.head) {
     const headPos = new THREE.Vector3();
@@ -1035,11 +1245,10 @@ function animate() {
       dumpling.rotation.y += delta * 1.2;
       dumpling.position.y += Math.sin(breathPhase * 2) * 0.003;
 
-      // Accumulate proximity time — must stay near mouth
-      // Mobile: wider radius (1.2 vs 0.92), faster trigger (1.5s vs 3s), slower decay
+      // Synchronized trigger/decay, but wider radius for Mobile touch
       const proximityRadius = isTouchDevice ? 1.2 : 0.92;
-      const triggerTime = isTouchDevice ? 1.5 : 3.0;
-      const decayRate = isTouchDevice ? 0.5 : 2.0;
+      const triggerTime = 3.0;
+      const decayRate = 2.0;
 
       if (dist < proximityRadius) {
         eat.proximityTimer += delta;
@@ -1279,6 +1488,10 @@ function animate() {
         eat.state = 'lunge';
         eat.timer = 0;
         if (chopsticksMesh) chopsticksMesh.visible = false;
+
+        // ── Camera Zoom In (Triggered at Lunge) ──
+        cameraTargetPos.set(0, 1.3, isTouchDevice ? 3.0 : 3.2);
+        cameraTargetLookAt.set(0, 1.2, 0);
       }
 
     } else if (eat.state === 'lunge') {
@@ -1469,6 +1682,10 @@ function animate() {
         eat.timer = 0;
         eat.proudBubbleShown = false;
         dumpling.visible = false;
+
+        // ── Camera Zoom Out (Starts 2s earlier, at transition to Proud) ──
+        cameraTargetPos.copy(baseCameraPos);
+        cameraTargetLookAt.copy(baseCameraLookAt);
       }
 
     } else if (eat.state === 'proud') {
@@ -1613,7 +1830,6 @@ function animate() {
       }
     }
   }
-
   // ── Chat bubble animation ──
   if (chatSprite && chatAnim.active) {
     chatAnim.timer += delta;
@@ -1639,8 +1855,8 @@ function animate() {
     const baseH = 0.22;
     chatSprite.scale.set(baseH * aspect * bounce, baseH * bounce, 1);
 
-    // Gentle float
-    chatSprite.position.y = 1.75 + Math.sin(timer * 2) * 0.015;
+    // Gentle float relative to baseY
+    chatSprite.position.y = chatAnim.baseY + Math.sin(timer * 2) * 0.015;
 
     if (timer >= duration) {
       chatAnim.active = false;

@@ -111,6 +111,13 @@ CSS-only animated panda face with bouncing animation, pupil look animation, prog
 4. "Mastering kung fu..."
 5. "Skadooshing..."
 
+## Development Guardrails
+
+- **Layout Integrity**: Maintain the **fullscreen 3D canvas** layout. Do NOT add side panels, login forms, or other split-screen elements.
+- **UI Constraints**: Do NOT add new HTML/DOM elements (inputs, buttons, forms) to `index.html` unless explicitly requested.
+- **Permission Policy**: ALWAYS ask the user for confirmation before proceeding with any changes that modify the page structure, layout, or visual composition beyond the 3D scene.
+- **Pure Landing Page**: The project's purpose is a focused, interactive 3D landing page. Avoid adding traditional web app UI components.
+
 ## How to Run
 
 ```bash

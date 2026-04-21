@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panda AI - Welcome</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    @font-face {
+      font-family: 'Go3v2';
+      src: url('assets/go3v2.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div class="loader-overlay" id="loaderOverlay">
+    <div class="loader-content">
+      <div class="panda-face">
+        <div class="panda-ear panda-ear-left"></div>
+        <div class="panda-ear panda-ear-right"></div>
+        <div class="panda-head">
+          <div class="panda-eye panda-eye-left">
+            <div class="panda-pupil"></div>
+          </div>
+          <div class="panda-eye panda-eye-right">
+            <div class="panda-pupil"></div>
+          </div>
+          <div class="panda-nose"></div>
+          <div class="panda-mouth"></div>
+        </div>
+      </div>
+      <div class="loader-bar-wrapper">
+        <div class="loader-bar" id="loaderBar"></div>
+      </div>
+      <div class="loader-text" id="loaderText">Loading... 0%</div>
+      <div class="loader-subtitle">Preparing dumplings...</div>
+    </div>
+  </div>
+
+  <!-- Toast hint -->
+  <div class="toast" id="toast"></div>
+
+  <div class="fullscreen-scene" id="scenePanel">
+    <canvas id="threeCanvas"></canvas>
+  </div>
+
+  <!-- Three.js via ES Module -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="scene.js"></script>
+</body>
+</html>

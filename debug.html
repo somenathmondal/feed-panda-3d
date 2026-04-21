@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Po Rig Debug</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: monospace; background: #1a1a2e; overflow: hidden; }
+    #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    #panel {
+      position: fixed; right: 0; top: 0; bottom: 0; width: 340px;
+      background: rgba(0,0,0,0.85); color: #eee; overflow-y: auto;
+      padding: 12px; font-size: 12px; z-index: 10;
+      backdrop-filter: blur(10px);
+    }
+    /* Folder styles */
+    .folder {
+      margin-bottom: 4px;
+      border: 1px solid #333;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .folder-header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px;
+      background: #1a2a3a;
+      cursor: pointer;
+      user-select: none;
+      font-size: 13px;
+      font-weight: bold;
+      color: #7eb8e0;
+      border-bottom: 1px solid #333;
+    }
+    .folder-header:hover { background: #1e3248; }
+    .folder-header .arrow {
+      font-size: 10px;
+      transition: transform 0.15s;
+      color: #888;
+    }
+    .folder.collapsed .folder-header .arrow { transform: rotate(-90deg); }
+    .folder.collapsed .folder-body { display: none; }
+    .folder-body { padding: 4px 8px 8px; }
+    .bone-section { margin-bottom: 2px; }
+    .bone-name {
+      font-weight: bold; color: #aaa; font-size: 11px;
+      padding: 4px 0 2px;
+    }
+    .bone-group { margin-bottom: 2px; }
+    .bone-group label {
+      display: flex; align-items: center; gap: 6px; margin: 2px 0;
+    }
+    .bone-group label span:first-child { width: 18px; color: #888; }
+    .bone-group input[type="range"] { flex: 1; accent-color: #7eb8e0; }
+    .bone-group .val { width: 50px; text-align: right; color: #aaa; font-size: 11px; }
+    #output {
+      position: fixed; left: 12px; bottom: 12px; z-index: 10;
+      background: rgba(0,0,0,0.8); color: #0f0; padding: 12px;
+      border-radius: 8px; font-size: 11px; max-width: 500px;
+      white-space: pre-wrap; font-family: monospace;
+    }
+    #copyBtn {
+      position: fixed; left: 12px; top: 12px; z-index: 10;
+      background: #7eb8e0; color: #000; border: none; padding: 8px 16px;
+      border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;
+    }
+    #copyBtn:hover { background: #9dd0f0; }
+    #resetBtn {
+      position: fixed; left: 130px; top: 12px; z-index: 10;
+      background: #e07e7e; color: #000; border: none; padding: 8px 16px;
+      border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px;
+    }
+    #resetBtn:hover { background: #f09d9d; }
+    .pose-btn {
+      position: fixed; top: 12px; z-index: 10;
+      background: #6a9; color: #000; border: none; padding: 8px 12px;
+      border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;
+    }
+    .pose-btn:hover { background: #8cb; }
+    .pose-btn.active { outline: 2px solid #fff; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="panel"></div>
+  <div id="output">// Pose values will appear here</div>
+  <button id="copyBtn">Copy Pose</button>
+  <button id="resetBtn">Reset</button>
+  <button class="pose-btn" data-pose="idle" style="left:230px">Idle</button>
+  <button class="pose-btn active" data-pose="proud" style="left:290px">Proud</button>
+  <button class="pose-btn" data-pose="bellyPat" style="left:360px">Belly Pat</button>
+  <button class="pose-btn" data-pose="eat" style="left:450px;background:#e0a07e">Eat</button>
+  <button class="pose-btn" id="reachToggle" style="left:510px;background:#d9a64a">Reach IK</button>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.167.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ── Renderer ──
+    const canvas = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.9;
+
+    // ── Camera ──
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    camera.position.set(0, 1.4, 4.5);
+
+    // ── Controls ──
+    const controls = new OrbitControls(camera, canvas);
+    controls.target.set(0, 1.0, 0);
+    controls.enableDamping = true;
+
+    // ── Scene ──
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2a2a4a);
+
+    // ── Lights ──
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const dir = new THREE.DirectionalLight(0xffffff, 2.0);
+    dir.position.set(3, 5, 4);
+    scene.add(dir);
+    scene.add(new THREE.DirectionalLight(0x88bbee, 0.5).translateX(-2));
+
+    // Grid
+    scene.add(new THREE.GridHelper(10, 20, 0x444444, 0x333333));
+
+    // ── All bones — organized in folders ──
+    const BONE_FOLDERS = {
+      'Face': {
+        head:   'head_038_44',
+        eyeL:   'cc_eye_l_041_47',
+        eyeR:   'cc_eye_r_039_45',
+        jaw:    'cc_jaw_043_49',
+      },
+      'Spine & Neck': {
+        spine:  'spine_02_01_6',
+        neck:   'neck_01_037_43',
+      },
+      'Left Arm': {
+        clavicleL:  'clavicle_l_047_53',
+        armL:       'upperarm_l_048_54',
+        forearmL:   'lowerarm_l_050_56',
+        handL:      'hand_l_052_58',
+      },
+      'Right Arm': {
+        clavicleR:  'clavicle_r_075_81',
+        armR:       'upperarm_r_076_82',
+        forearmR:   'lowerarm_r_079_85',
+        handR:      'hand_r_081_87',
+      },
+    };
+
+    // Flat map for quick lookup
+    const ALL_BONES = {};
+    for (const folder of Object.values(BONE_FOLDERS)) {
+      Object.assign(ALL_BONES, folder);
+    }
+
+    const bones = {};
+    const restRotations = {};
+    const panel = document.getElementById('panel');
+    const output = document.getElementById('output');
+
+    // ── Load Po ──
+    const loader = new GLTFLoader();
+    loader.load('models/po.glb', (gltf) => {
+      const model = gltf.scene;
+      const pivot = new THREE.Group();
+      pivot.add(model);
+      pivot.scale.setScalar(1.3);
+
+      pivot.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(pivot);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      pivot.position.x -= center.x;
+      pivot.position.y -= box.min.y;
+
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.material.metalness = 0.0;
+          child.material.roughness = 0.8;
+        }
+        if (child.isBone) {
+          for (const [key, name] of Object.entries(ALL_BONES)) {
+            if (child.name === name) {
+              bones[key] = child;
+              restRotations[key] = child.rotation.clone();
+            }
+          }
+        }
+      });
+
+      scene.add(pivot);
+
+      // Initialize to proud pose
+      applyPose('proud');
+
+      buildPanel();
+    });
+
+    // ── Preset poses ──
+    const POSES = {
+      idle: {
+        armL:  { z: -1.2 },
+        armR:  { z: +1.2 },
+      },
+      proud: {
+        // Right side (from debug)
+        clavicleR: { x: 0.046, y: -0.231 },
+        armR:      { x: -0.291, y: 0.143, z: 1.200 },
+        forearmR:  { x: -1.190, y: 0.080, z: 0.165 },
+        handR:     { x: -0.470 },
+        // Left side (mirrored)
+        clavicleL: { x: 0.046, y: 0.231 },
+        armL:      { x: -0.291, y: -0.143, z: -1.200 },
+        forearmL:  { x: -1.190, y: -0.080, z: -0.165 },
+        handL:     { x: -0.470 },
+      },
+      eat: {
+        // Matches scene.js solveArm() at full reach: idle(±1.2) + reach(±0.464)
+        clavicleL: { x: -0.074 },
+        armL:      { x: 0.089, y: 0.217, z: -1.664 },
+        forearmL:  { x: 0.640, y: 0.160, z: -0.335 },
+        handL:     { x: -0.210, y: -2.490 },
+        clavicleR: { x: -0.074 },
+        armR:      { x: 0.089, y: -0.217, z: 1.664 },
+        forearmR:  { x: 0.640, y: -0.160, z: 0.335 },
+        handR:     { x: -0.210, y: 2.590 },
+      },
+      bellyPat: {
+        armL:     { x: -0.6, y: 0.3, z: -0.6 },
+        armR:     { x: -0.6, y: -0.3, z: 0.6 },
+        forearmL: { z: -0.8 },
+        forearmR: { z: 0.8 },
+      },
+    };
+
+    function applyPose(name) {
+      // Reset all to rest first
+      for (const [key, bone] of Object.entries(bones)) {
+        if (restRotations[key]) bone.rotation.copy(restRotations[key]);
+      }
+      const pose = POSES[name];
+      if (!pose) return;
+      for (const [key, offsets] of Object.entries(pose)) {
+        if (!bones[key] || !restRotations[key]) continue;
+        const rest = restRotations[key];
+        if (offsets.x !== undefined) bones[key].rotation.x = rest.x + offsets.x;
+        if (offsets.y !== undefined) bones[key].rotation.y = rest.y + offsets.y;
+        if (offsets.z !== undefined) bones[key].rotation.z = rest.z + offsets.z;
+      }
+    }
+
+    // ── Build folder panel ──
+    function buildPanel() {
+      panel.innerHTML = '';
+      const axes = ['x', 'y', 'z'];
+
+      for (const [folderName, folderBones] of Object.entries(BONE_FOLDERS)) {
+        const folder = document.createElement('div');
+        folder.className = 'folder';
+
+        // Header
+        const header = document.createElement('div');
+        header.className = 'folder-header';
+        header.innerHTML = `<span class="arrow">▼</span> ${folderName}`;
+        header.addEventListener('click', () => folder.classList.toggle('collapsed'));
+        folder.appendChild(header);
+
+        // Body
+        const body = document.createElement('div');
+        body.className = 'folder-body';
+
+        for (const [key, boneName] of Object.entries(folderBones)) {
+          const bone = bones[key];
+          if (!bone) continue;
+
+          const section = document.createElement('div');
+          section.className = 'bone-section';
+
+          const nameEl = document.createElement('div');
+          nameEl.className = 'bone-name';
+          nameEl.textContent = key;
+          section.appendChild(nameEl);
+
+          const group = document.createElement('div');
+          group.className = 'bone-group';
+
+          axes.forEach((axis) => {
+            const label = document.createElement('label');
+            const span = document.createElement('span');
+            span.textContent = axis.toUpperCase();
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = -3.14;
+            slider.max = 3.14;
+            slider.step = 0.01;
+            slider.value = bone.rotation[axis];
+            slider.dataset.bone = key;
+            slider.dataset.axis = axis;
+
+            const val = document.createElement('span');
+            val.className = 'val';
+            val.textContent = bone.rotation[axis].toFixed(3);
+
+            slider.addEventListener('input', () => {
+              const v = parseFloat(slider.value);
+              bone.rotation[axis] = v;
+              val.textContent = v.toFixed(3);
+              updateOutput();
+            });
+
+            label.appendChild(span);
+            label.appendChild(slider);
+            label.appendChild(val);
+            group.appendChild(label);
+          });
+
+          section.appendChild(group);
+          body.appendChild(section);
+        }
+
+        folder.appendChild(body);
+        panel.appendChild(folder);
+      }
+    }
+
+    // ── Output current pose as code ──
+    function updateOutput() {
+      let code = '// Pose values (offset from rest per bone)\n';
+      for (const [key, bone] of Object.entries(bones)) {
+        const rest = restRotations[key];
+        const dx = bone.rotation.x - rest.x;
+        const dy = bone.rotation.y - rest.y;
+        const dz = bone.rotation.z - rest.z;
+        if (Math.abs(dx) > 0.005 || Math.abs(dy) > 0.005 || Math.abs(dz) > 0.005) {
+          code += `// ${key}: rest + (${dx.toFixed(3)}, ${dy.toFixed(3)}, ${dz.toFixed(3)})\n`;
+          code += `bones.${key}.rotation.set(rest.${key}.x + ${dx.toFixed(3)}, rest.${key}.y + ${dy.toFixed(3)}, rest.${key}.z + ${dz.toFixed(3)});\n`;
+        }
+      }
+      output.textContent = code || '// No changes from rest pose';
+    }
+
+    // ── Copy button ──
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(output.textContent);
+      document.getElementById('copyBtn').textContent = 'Copied!';
+      setTimeout(() => document.getElementById('copyBtn').textContent = 'Copy Pose', 1500);
+    });
+
+    // ── Reset button ──
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      applyPose('idle');
+      document.querySelectorAll('.pose-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector('[data-pose="idle"]').classList.add('active');
+      buildPanel();
+      updateOutput();
+    });
+
+    // ── Pose preset buttons ──
+    document.querySelectorAll('.pose-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.pose;
+        applyPose(name);
+        document.querySelectorAll('.pose-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        buildPanel();
+        updateOutput();
+      });
+    });
+
+    // ── Resize ──
+    function resize() {
+      const w = window.innerWidth - 340;
+      const h = window.innerHeight;
+      renderer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ── Reach IK mode ──
+    let reachMode = false;
+    const mouseNDC = new THREE.Vector2();
+    const raycaster = new THREE.Raycaster();
+    const cursorPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -1);
+    const targetWorld = new THREE.Vector3();
+
+    // Dumpling stand-in sphere
+    const dumpSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0xffaa44 })
+    );
+    dumpSphere.visible = false;
+    scene.add(dumpSphere);
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!reachMode) return;
+      const rect = canvas.getBoundingClientRect();
+      mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouseNDC, camera);
+      raycaster.ray.intersectPlane(cursorPlane, targetWorld);
+      dumpSphere.position.copy(targetWorld);
+    });
+
+    document.getElementById('reachToggle').addEventListener('click', () => {
+      reachMode = !reachMode;
+      const btn = document.getElementById('reachToggle');
+      btn.style.outline = reachMode ? '2px solid #fff' : 'none';
+      dumpSphere.visible = reachMode;
+      if (!reachMode) {
+        applyPose('idle');
+        buildPanel();
+        updateOutput();
+      }
+      // Disable orbit when in reach mode so mouse drives the target
+      controls.enabled = !reachMode;
+    });
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    function solveReachArm(side, reachAmt) {
+      const clavKey = side === 'L' ? 'clavicleL' : 'clavicleR';
+      const armKey = side === 'L' ? 'armL' : 'armR';
+      const foreKey = side === 'L' ? 'forearmL' : 'forearmR';
+      const handKey = side === 'L' ? 'handL' : 'handR';
+      const sign = side === 'L' ? -1 : 1;
+      if (!bones[armKey]) return;
+
+      const shoulderPos = new THREE.Vector3();
+      bones[armKey].getWorldPosition(shoulderPos);
+      const dir = new THREE.Vector3().subVectors(targetWorld, shoulderPos).normalize();
+      const yaw = Math.atan2(dir.x, dir.z);
+      const pitch = Math.asin(clamp(dir.y, -1, 1));
+
+      if (bones[clavKey] && restRotations[clavKey]) {
+        bones[clavKey].rotation.x = lerp(bones[clavKey].rotation.x, restRotations[clavKey].x + reachAmt * -0.074, 0.12);
+      }
+      const rest = restRotations[armKey];
+      const idleZ = rest.z + sign * 1.2;
+      bones[armKey].rotation.x = lerp(bones[armKey].rotation.x, rest.x + reachAmt * (0.089 + pitch * 0.15), 0.12);
+      bones[armKey].rotation.y = lerp(bones[armKey].rotation.y, rest.y + reachAmt * (0.217 * -sign + yaw * 0.1 * -sign), 0.12);
+      bones[armKey].rotation.z = lerp(bones[armKey].rotation.z, idleZ + reachAmt * sign * 0.464, 0.12);
+
+      if (bones[foreKey] && restRotations[foreKey]) {
+        bones[foreKey].rotation.x = lerp(bones[foreKey].rotation.x, restRotations[foreKey].x + reachAmt * (0.640 + pitch * 0.1), 0.12);
+        bones[foreKey].rotation.y = lerp(bones[foreKey].rotation.y, restRotations[foreKey].y + reachAmt * -0.160 * -sign, 0.12);
+        bones[foreKey].rotation.z = lerp(bones[foreKey].rotation.z, restRotations[foreKey].z + reachAmt * 0.335 * sign, 0.12);
+      }
+      if (bones[handKey] && restRotations[handKey]) {
+        bones[handKey].rotation.x = lerp(bones[handKey].rotation.x, restRotations[handKey].x + reachAmt * -0.210, 0.12);
+        bones[handKey].rotation.y = lerp(bones[handKey].rotation.y, restRotations[handKey].y + reachAmt * yaw * 0.4 * -sign, 0.12);
+        bones[handKey].rotation.z = lerp(bones[handKey].rotation.z, restRotations[handKey].z + reachAmt * pitch * 0.3 * sign, 0.12);
+      }
+    }
+
+    // ── Animate ──
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+
+      if (reachMode && targetWorld.length() > 0 && bones.armL) {
+        // Compute reach intensity from distance
+        const headPos = new THREE.Vector3();
+        if (bones.head) bones.head.getWorldPosition(headPos);
+        else headPos.set(0, 1.4, 0);
+        const dist = headPos.distanceTo(targetWorld);
+        const reach = clamp(1 - (dist - 0.5) / 1.5, 0, 1);
+        const reachSq = reach * reach;
+
+        const toFoodX = clamp(targetWorld.x - headPos.x, -1, 1);
+        const reachL = reachSq * clamp(1 - toFoodX, 0.3, 1);
+        const reachR = reachSq * clamp(1 + toFoodX, 0.3, 1);
+
+        solveReachArm('L', reachL);
+        solveReachArm('R', reachR);
+
+        // Update sliders to reflect current values
+        buildPanel();
+        updateOutput();
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

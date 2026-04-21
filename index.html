@@ -82,5 +82,36 @@
     window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
   </script>
   <script defer src="/_vercel/insights/script.js"></script>
+
+  <!-- Protection Script -->
+  <script>
+    // Disable right-click
+    document.addEventListener('contextmenu', e => e.preventDefault());
+
+    // Disable keyboard shortcuts for devtools
+    document.addEventListener('keydown', e => {
+      if (
+        e.key === 'F12' ||
+        (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) ||
+        (e.ctrlKey && e.key === 'U') ||
+        (e.metaKey && e.altKey && e.key === 'i') || // Mac
+        (e.metaKey && e.key === 'u')               // Mac
+      ) {
+        e.preventDefault();
+        return false;
+      }
+    });
+
+    // Detect and deter debugging
+    (function() {
+      const deter = function() {
+        setInterval(function() {
+          debugger;
+        }, 100);
+      };
+      // Only runs if they actually manage to open devtools
+      try { deter(); } catch (e) {}
+    })();
+  </script>
 </body>
 </html>

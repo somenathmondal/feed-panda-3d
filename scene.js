@@ -308,7 +308,15 @@ let breathPhase = 0;
 // ── Setup renderer ──
 const canvas = document.getElementById('threeCanvas');
 const panel = document.getElementById('scenePanel');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, preserveDrawingBuffer: true });
+
+// ── Screenshot Helper ──
+window.savePandaImage = () => {
+  const link = document.createElement('a');
+  link.download = 'preview.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+};
 const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
 renderer.shadowMap.enabled = true;

@@ -11,14 +11,14 @@
   <meta property="og:url" content="https://feed-panda.vercel.app/">
   <meta property="og:title" content="Feed Panda">
   <meta property="og:description" content="An interactive 3D experience. Master your inner peace and feed the panda some dumplings.">
-  <meta property="og:image" content="assets/yeti.png">
+  <meta property="og:image" content="https://feed-panda.vercel.app/assets/yeti.png">
 
   <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image">
   <meta property="twitter:url" content="https://feed-panda.vercel.app/">
   <meta property="twitter:title" content="Feed Panda">
   <meta property="twitter:description" content="An interactive 3D experience. Master your inner peace and feed the panda some dumplings.">
-  <meta property="twitter:image" content="assets/yeti.png">
+  <meta property="twitter:image" content="https://feed-panda.vercel.app/assets/yeti.png">
 
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -102,8 +102,11 @@
       }
     });
 
-    // Detect and deter debugging
+    // Detect and deter debugging (skip for bots to allow Vercel screenshots)
     (function() {
+      const isBot = /bot|googlebot|crawler|spider|robot|crawling|vercel/i.test(navigator.userAgent);
+      if (isBot) return;
+
       const deter = function() {
         setInterval(function() {
           debugger;

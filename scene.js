@@ -614,9 +614,13 @@ const bones = {};
 // ── Initial rotations (rest pose) ──
 const restRotations = {};
 
+// ── Face morphs (shape keys in po_expressive.glb: smile, happyEyes, smileBig, happyEyesBig) ──
+let faceMesh = null;
+const FACE_KEYS = { smile: 'smileBig', eyes: 'happyEyesBig' };
+
 // ── Load model ──
 const loader = new GLTFLoader();
-loader.load('models/po.glb', (gltf) => {
+loader.load('models/po_expressive.glb', (gltf) => {
   const model = gltf.scene;
 
   // Compute bounding box to understand model orientation
@@ -675,6 +679,9 @@ loader.load('models/po.glb', (gltf) => {
         child.material.metalness = 0.0;
         child.material.roughness = 0.8;
       }
+      if (child.morphTargetDictionary && child.morphTargetDictionary[FACE_KEYS.smile] !== undefined) {
+        faceMesh = child;
+      }
     }
 
     // Find bones by name
@@ -692,6 +699,10 @@ loader.load('models/po.glb', (gltf) => {
 
   console.log('Bones found:', Object.keys(bones).join(', '));
   console.log('Missing:', Object.keys(BONE_NAMES).filter(k => !bones[k]).join(', ') || 'none');
+  console.log('Face morphs:', faceMesh ? Object.keys(faceMesh.morphTargetDictionary).join(', ') : 'none');
+
+  // Console/debug handle (see debug.html) — inspect eat state and morph influences
+  window.poDebug = { eat, getFace: () => faceMesh };
 
   resize();
   animate();
@@ -1873,6 +1884,19 @@ function animate() {
       chatSprite.material.dispose();
       chatSprite = null;
     }
+  }
+
+  // ── Face morphs: big smile + happy eyes while chewing/proud ──
+  if (faceMesh) {
+    let smileTarget = 0, eyesTarget = 0;
+    if (eat.state === 'chewing') { smileTarget = 0.35; eyesTarget = 0.25; }
+    else if (eat.state === 'proud') { smileTarget = 1.0; eyesTarget = 1.0; }
+    const dict = faceMesh.morphTargetDictionary;
+    const inf = faceMesh.morphTargetInfluences;
+    const si = dict[FACE_KEYS.smile];
+    const ei = dict[FACE_KEYS.eyes];
+    inf[si] = lerp(inf[si], smileTarget, smileTarget > inf[si] ? 0.10 : 0.04);
+    inf[ei] = lerp(inf[ei], eyesTarget, eyesTarget > inf[ei] ? 0.10 : 0.04);
   }
 
   renderer.render(scene, camera);

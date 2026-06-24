@@ -62,6 +62,12 @@
   <!-- Toast hint -->
   <div class="toast" id="toast"></div>
 
+  <!-- Credits UI -->
+  <div class="credits-container">
+    <a href="https://sketchfab.com/3d-models/po-from-kung-fu-panda-rigged-bef71a2b1dbd4a449c639fdf1776db7b" target="_blank" class="credit-link">Po 3D Model</a>
+    <a href="https://www.linkedin.com/in/somenath-mondal-xr-tech/" target="_blank" class="credit-link">Contact Developer</a>
+  </div>
+
   <div class="fullscreen-scene" id="scenePanel">
     <canvas id="threeCanvas"></canvas>
   </div>
@@ -83,38 +89,5 @@
   </script>
   <script defer src="/_vercel/insights/script.js"></script>
 
-  <!-- Protection Script -->
-  <script>
-    // Disable right-click
-    document.addEventListener('contextmenu', e => e.preventDefault());
-
-    // Disable keyboard shortcuts for devtools
-    document.addEventListener('keydown', e => {
-      if (
-        e.key === 'F12' ||
-        (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J' || e.key === 'C')) ||
-        (e.ctrlKey && e.key === 'U') ||
-        (e.metaKey && e.altKey && e.key === 'i') || // Mac
-        (e.metaKey && e.key === 'u')               // Mac
-      ) {
-        e.preventDefault();
-        return false;
-      }
-    });
-
-    // Detect and deter debugging (skip for bots to allow Vercel screenshots)
-    (function() {
-      const isBot = /bot|googlebot|crawler|spider|robot|crawling|vercel/i.test(navigator.userAgent);
-      if (isBot) return;
-
-      const deter = function() {
-        setInterval(function() {
-          debugger;
-        }, 100);
-      };
-      // Only runs if they actually manage to open devtools
-      try { deter(); } catch (e) {}
-    })();
-  </script>
 </body>
 </html>

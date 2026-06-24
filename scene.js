@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
+const loader = new GLTFLoader();
+
 // ── Loader UI ──
 const loaderOverlay = document.getElementById('loaderOverlay');
 const loaderBar = document.getElementById('loaderBar');
 const loaderText = document.getElementById('loaderText');
 const loaderSubtitle = document.querySelector('.loader-subtitle');
 
-const loadProgress = { po: 0, dumpling: 0, bamboo: 0 };
+const loadProgress = { po: 0, dumpling: 0, bamboo: 0, grass: 0 };
 const subtitles = [
   'Preparing dumplings...',
   'Warming up chopsticks...',
@@ -17,8 +19,8 @@ const subtitles = [
 ];
 
 function updateLoader() {
-  // Po is 80%, bamboo 15%, dumpling 5%
-  const total = loadProgress.po * 0.8 + loadProgress.bamboo * 0.15 + loadProgress.dumpling * 0.05;
+  // Po is 75%, bamboo 15%, dumpling 5%, grass 5%
+  const total = loadProgress.po * 0.75 + loadProgress.bamboo * 0.15 + loadProgress.dumpling * 0.05 + loadProgress.grass * 0.05;
   const pct = Math.min(Math.round(total * 100), 100);
   loaderBar.style.width = pct + '%';
   loaderText.textContent = `Loading... ${pct}%`;
@@ -135,97 +137,16 @@ function showChatBubble(msg) {
 
 // ── 3D Interactive Tiles (Credits) ──
 const clickableTiles = [];
-function createCreditTile(text, url, pos) {
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
-  const w = 400, h = 100;
-  canvas.width = w; canvas.height = h;
 
-  // Background - Rounded Rect with Gradient
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, '#2a2a4a');
-  grad.addColorStop(1, '#1a1a2e');
-  ctx.fillStyle = grad;
-  
-  const r = 24;
-  ctx.beginPath();
-  ctx.moveTo(r, 0);
-  ctx.lineTo(w - r, 0);
-  ctx.quadraticCurveTo(w, 0, w, r);
-  ctx.lineTo(w, h - r);
-  ctx.quadraticCurveTo(w, h, w - r, h);
-  ctx.lineTo(r, h);
-  ctx.quadraticCurveTo(0, h, 0, h - r);
-  ctx.lineTo(0, r);
-  ctx.quadraticCurveTo(0, 0, r, 0);
-  ctx.closePath();
-  ctx.fill();
-
-  // Glow Border
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-  ctx.lineWidth = 4;
-  ctx.stroke();
-
-  // Text using Go3v2 font
-  ctx.fillStyle = '#ffffff';
-  let fontSize = 34;
-  ctx.font = `${fontSize}px "Go3v2", Inter, sans-serif`;
-  
-  // Auto-shrink font if text is too wide
-  const maxTextWidth = w - 60; // 30px padding on each side
-  let metrics = ctx.measureText(text);
-  if (metrics.width > maxTextWidth) {
-    fontSize = Math.floor(fontSize * (maxTextWidth / metrics.width));
-    ctx.font = `${fontSize}px "Go3v2", Inter, sans-serif`;
-  }
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // Shadow for text
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 6;
-  ctx.shadowOffsetY = 3;
-  ctx.fillText(text, w / 2, h / 2);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  const mat = new THREE.MeshStandardMaterial({ 
-    map: texture, 
-    transparent: true, 
-    roughness: 0.3,
-    metalness: 0.5,
-    emissive: 0x000000,
-    emissiveIntensity: 1
-  });
-  
-  // Size: 1.1 x 0.275
-  const geo = new THREE.PlaneGeometry(1.1, 0.275);
-  const mesh = new THREE.Mesh(geo, mat);
-  
-  mesh.position.copy(pos);
-  mesh.rotation.x = -Math.PI / 2.5; // Tilt up 
-  mesh.userData = { url, hover: false, baseY: pos.y, phase: Math.random() * Math.PI * 2 };
-  
-  scene.add(mesh);
-  clickableTiles.push(mesh);
-}
-
-// Create tiles once on startup - Near Po's feet
-setTimeout(() => {
-  // Near feet (Z=0.8), slightly raised (Y=0.15)
-  createCreditTile('Po 3D Model', 'https://sketchfab.com/3d-models/po-from-kung-fu-panda-rigged-bef71a2b1dbd4a449c639fdf1776db7b', new THREE.Vector3(-0.9, 0.15, 0.8));
-  createCreditTile('Contact Developer', 'https://www.linkedin.com/in/somenath-mondal-xr-tech/', new THREE.Vector3(0.9, 0.15, 0.8));
-  
-  // Reposition them immediately after creation based on current screen size
-  resize();
-}, 1000);
 
 let modelsLoaded = 0;
 function onModelLoaded() {
   modelsLoaded++;
-  if (modelsLoaded >= 3) {
+  if (modelsLoaded >= 4) {
     loadProgress.po = 1;
     loadProgress.dumpling = 1;
     loadProgress.bamboo = 1;
+    loadProgress.grass = 1;
     updateLoader();
     setTimeout(() => {
       loaderOverlay.classList.add('hidden');
@@ -321,8 +242,8 @@ const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = isMobileDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.9;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.0;
 
 // ── Camera ──
 const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
@@ -384,74 +305,142 @@ function resize() {
 // ── Scene ──
 const scene = new THREE.Scene();
 
-// ── Sky background — painted gradient on a large sphere ──
-{
-  const skyGeo = new THREE.SphereGeometry(50, 32, 32);
-  const skyMat = new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: {
-      uTopColor:    { value: new THREE.Color(0x4a90d9) }, // rich blue
-      uMiddleColor: { value: new THREE.Color(0x87ceeb) }, // sky blue
-      uBottomColor: { value: new THREE.Color(0xd4eaf7) }, // pale horizon
-      uSunColor:    { value: new THREE.Color(0xfff4e0) }, // warm sun glow
-      uSunDir:      { value: new THREE.Vector3(-0.4, 0.5, -0.7).normalize() },
-    },
-    vertexShader: `
-      varying vec3 vWorldPos;
-      void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 uTopColor;
-      uniform vec3 uMiddleColor;
-      uniform vec3 uBottomColor;
-      uniform vec3 uSunColor;
-      uniform vec3 uSunDir;
-      varying vec3 vWorldPos;
-      void main() {
-        vec3 dir = normalize(vWorldPos - cameraPosition);
-        float y = dir.y;
+// ── Sky background & Environment map (Sunset Hybrid) ──
+const skyNoiseMap = new THREE.TextureLoader().load('assets/perlin.webp');
+skyNoiseMap.wrapS = THREE.RepeatWrapping;
+skyNoiseMap.wrapT = THREE.RepeatWrapping;
 
-        // Gradient: bottom → middle → top
-        vec3 col;
-        if (y < 0.0) {
-          col = uBottomColor;
-        } else if (y < 0.3) {
-          col = mix(uBottomColor, uMiddleColor, y / 0.3);
-        } else {
-          col = mix(uMiddleColor, uTopColor, (y - 0.3) / 0.7);
+const skyGeo = new THREE.SphereGeometry(50, 32, 32);
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: {
+    uTime:        { value: 0 },
+    uNoiseMap:    { value: skyNoiseMap },
+    uTopColor:    { value: new THREE.Color('#384275') }, // dusk blue
+    uMiddleColor: { value: new THREE.Color('#c96b79') }, // dusk pink
+    uBottomColor: { value: new THREE.Color('#f0af78') }, // golden horizon
+    uSunColor:    { value: new THREE.Color('#fff0d0') }, // warm sun
+    uSunDir:      { value: new THREE.Vector3(3.0, 5.0, 4.0).normalize() },
+    uCloudColor:  { value: new THREE.Color('#fffaee') }, // warm cloud cream
+  },
+  vertexShader: `
+    varying vec3 vWorldPos;
+    void main() {
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorldPos = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uTopColor;
+    uniform vec3 uMiddleColor;
+    uniform vec3 uBottomColor;
+    uniform vec3 uSunColor;
+    uniform vec3 uSunDir;
+    uniform vec3 uCloudColor;
+    uniform sampler2D uNoiseMap;
+    uniform float uTime;
+    varying vec3 vWorldPos;
+
+    void main() {
+      vec3 dir = normalize(vWorldPos - cameraPosition);
+      float y = dir.y;
+
+      // Gradient sky
+      vec3 col;
+      if (y < 0.0) {
+        col = uBottomColor;
+      } else if (y < 0.3) {
+        col = mix(uBottomColor, uMiddleColor, y / 0.3);
+      } else {
+        col = mix(uMiddleColor, uTopColor, (y - 0.3) / 0.7);
+      }
+
+      // Sun glow
+      float sunDot = max(dot(dir, uSunDir), 0.0);
+      col += uSunColor * pow(sunDot, 32.0) * 0.4;
+      col += uSunColor * pow(sunDot, 4.0) * 0.15;
+
+      // Procedural drifting clouds
+      if (y > -0.05) {
+        // Cylindrical mapping: maps longitude to U and latitude to V
+        // This keeps the clouds flat and horizontal, preventing arched wave/ripple bowing.
+        float angle = atan(dir.z, dir.x);
+        float u = (angle + 3.14159) / 6.28318 * 5.0; // wrap 5 times around the sky seamlessly
+        float v = 1.0 / (max(dir.y, 0.0) + 0.12) * 0.22; // perspective compression near horizon
+        vec2 cloudUV = vec2(u, v);
+        
+        // Mainly horizontal drift for natural wind motion
+        vec2 drift = vec2(0.03, 0.003) * uTime;
+        
+        // Domain warping to create fluffy, wind-swept cartoon shapes
+        vec2 warpUV = cloudUV * 0.45 + drift * 0.3;
+        float warp = texture2D(uNoiseMap, warpUV).r;
+        
+        vec2 uv = cloudUV + drift + vec2(warp * 0.22, warp * 0.14);
+
+        // FBM (Fractal Brownian Motion) approximation with 3 octaves
+        float n1 = texture2D(uNoiseMap, uv).r;
+        float n2 = texture2D(uNoiseMap, uv * 2.8 - drift * 0.4).r;
+        float n3 = texture2D(uNoiseMap, uv * 6.5 + drift * 0.2).r;
+        float noise = n1 * 0.52 + n2 * 0.32 + n3 * 0.16;
+
+        // Clean-cut, stylized Ghibli edges using smoothstep
+        float density = 0.47;
+        float cloudMask = smoothstep(density, density + 0.12, noise);
+
+        // Soft fade near the horizon to blend with the warm sunset haze
+        cloudMask *= smoothstep(-0.05, 0.22, y);
+
+        if (cloudMask > 0.0) {
+          // Shading: sample noise offset towards the sun in cylindrical coordinates
+          float sunAngle = atan(uSunDir.z, uSunDir.x);
+          float shiftU = sin(sunAngle - angle) * 0.035;
+          vec2 offsetUV = uv + vec2(shiftU, -0.01);
+          
+          float n1_offset = texture2D(uNoiseMap, offsetUV).r;
+          float n2_offset = texture2D(uNoiseMap, offsetUV * 2.8 - drift * 0.4).r;
+          float n3_offset = texture2D(uNoiseMap, offsetUV * 6.5 + drift * 0.2).r;
+          float noiseOffset = n1_offset * 0.52 + n2_offset * 0.32 + n3_offset * 0.16;
+
+          // Volumetric light factor based on density slope
+          float lightFactor = smoothstep(-0.04, 0.08, noise - noiseOffset);
+
+          // Stylized palette: cool deep dusk mauve-purple for cloud shadows, warm cream/pink for lit areas
+          vec3 cloudShadow = mix(uMiddleColor * 0.55, vec3(0.32, 0.28, 0.42), 0.45);
+          vec3 cloudBody = mix(cloudShadow, uCloudColor, lightFactor);
+
+          // Bright warm rim highlight on the edge facing the sun
+          float rimFactor = smoothstep(0.0, 0.06, noise - noiseOffset) * (1.0 - smoothstep(density + 0.01, density + 0.12, noise));
+          vec3 cloudCol = mix(cloudBody, uSunColor * 1.25, rimFactor * 0.65);
+
+          col = mix(col, cloudCol, cloudMask * 0.9);
         }
-
-        // Sun glow
-        float sunDot = max(dot(dir, uSunDir), 0.0);
-        col += uSunColor * pow(sunDot, 32.0) * 0.5;  // tight glow
-        col += uSunColor * pow(sunDot, 4.0) * 0.15;   // broad warm haze
-
-        gl_FragColor = vec4(col, 1.0);
       }
-    `,
-  });
-  const skyMesh = new THREE.Mesh(skyGeo, skyMat);
-  scene.add(skyMesh);
-}
 
-// Environment map for reflections (simple hemisphere)
-const pmremGenerator = new THREE.PMREMGenerator(renderer);
-const envScene = new THREE.Scene();
-envScene.add(new THREE.HemisphereLight(0x87ceeb, 0x8db87a, 1.0));
-const envRT = pmremGenerator.fromScene(envScene);
-scene.environment = envRT.texture;
-pmremGenerator.dispose();
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `
+});
+const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+scene.add(skyMesh);
+window._skyMaterial = skyMat;
+
+// Load static sunset texture purely to bake environment map reflections
+new THREE.TextureLoader().load('assets/sky_88_2k.png', (texture) => {
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  const pmremGenerator = new THREE.PMREMGenerator(renderer);
+  const envRT = pmremGenerator.fromEquirectangular(texture);
+  scene.environment = envRT.texture;
+  pmremGenerator.dispose();
+});
 
 // ── Lights ──
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
 scene.add(ambientLight);
 
-const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+const dirLight = new THREE.DirectionalLight(0xfff1cf, 2.2);
 dirLight.position.set(3, 5, 4);
 dirLight.castShadow = true;
 dirLight.shadow.mapSize.set(isMobileDevice ? 1024 : 2048, isMobileDevice ? 1024 : 2048);
@@ -487,96 +476,312 @@ ground.position.y = 0;
 ground.receiveShadow = true;
 scene.add(ground);
 
-// ── Procedural Grass with GPU wind ──
+// ── Procedural Ghibli Grass ──
 {
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
-  const GRASS_COUNT = isMobile ? 300000 : 600000;
-  const SPREAD = 40;
-  const CLEAR_RADIUS = 0.6;
+  const noiseMap = new THREE.TextureLoader().load('assets/perlin.webp');
+  noiseMap.wrapS = THREE.RepeatWrapping;
+  noiseMap.wrapT = THREE.RepeatWrapping;
 
-  const grassGeo = new THREE.ConeGeometry(0.008, 0.35, 3);
-  grassGeo.translate(0, 0.175, 0); // pivot at base
+  loader.load('models/grass-blades-up.glb', (gltf) => {
+    let grassGeo = null;
+    gltf.scene.traverse((child) => {
+      if (child.isMesh && !grassGeo) {
+        grassGeo = child.geometry;
+      }
+    });
 
-  const grassMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 0.7,
-    metalness: 0.0,
-    side: THREE.DoubleSide,
+    if (!grassGeo) {
+      console.error("Could not find geometry in grass GLB!");
+      return;
+    }
+
+    const box = new THREE.Box3().setFromObject(gltf.scene);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const bladeHeight = size.y || 0.35;
+    console.log('Grass blade model loaded — height:', bladeHeight);
+
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
+    const GRASS_COUNT = isMobile ? 30000 : 60000;
+    const SPREAD = 40;
+    const CLEAR_RADIUS = 0.6;
+
+    const grassMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.85,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+    });
+
+    grassMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = { value: 0 };
+      shader.uniforms.uNoiseMap = { value: noiseMap };
+      shader.uniforms.uWindStrength = { value: 0.25 };
+      shader.uniforms.uWindSpeed = { value: 2.0 };
+      shader.uniforms.uWindAngle = { value: 45.0 };
+      shader.uniforms.uGustScale = { value: 0.5 };
+      shader.uniforms.uTurbulence = { value: 0.28 };
+      shader.uniforms.uFlutter = { value: 0.28 };
+      shader.uniforms.uHeightVariation = { value: 0.5 };
+      shader.uniforms.uHeightNoiseScale = { value: 0.15 };
+      shader.uniforms.uRootColor = { value: new THREE.Color('#6aa14f') };
+      shader.uniforms.uTipColor = { value: new THREE.Color('#a1cc33') };
+      shader.uniforms.uRootColorB = { value: new THREE.Color('#74a022') };
+      shader.uniforms.uTipColorB = { value: new THREE.Color('#e8e84f') };
+      shader.uniforms.uColorVariation = { value: 0.5 };
+      shader.uniforms.uColorPatchScale = { value: 0.7 };
+      shader.uniforms.uMacroVariation = { value: 0.48 };
+      shader.uniforms.uMacroScale = { value: 0.115 };
+      shader.uniforms.uBladeHeight = { value: bladeHeight };
+
+      grassMat.userData.shader = shader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vWorldPosition;
+         varying float vHeightAlongBlade;
+         varying float vInstanceSeed;
+
+         uniform float uTime;
+         uniform sampler2D uNoiseMap;
+         uniform float uWindStrength;
+         uniform float uWindSpeed;
+         uniform float uWindAngle;
+         uniform float uGustScale;
+         uniform float uTurbulence;
+         uniform float uFlutter;
+         uniform float uHeightVariation;
+         uniform float uHeightNoiseScale;
+         uniform float uBladeHeight;
+
+         attribute vec2 aOrigin;
+         attribute vec2 aFacing;
+
+         float hash(float n) {
+             return fract(sin(n) * 43758.5453123);
+         }
+         float hash(vec2 p) {
+             return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+         }
+
+         vec3 getWindSway(vec3 localPos, vec2 origin, vec2 facing, float timeVal, float index) {
+             float height = uBladeHeight;
+             float t = clamp(localPos.y / height, 0.0, 1.0);
+
+             float bladeSeed = hash(index);
+             float bladePhase = bladeSeed * 6.2831853;
+             float ampVar = 0.65 + hash(index + 7.0) * 0.7;
+
+             float baseAngle = uWindAngle * (3.14159265 / 180.0);
+             float wobble = sin(timeVal * uWindSpeed * 0.6 + bladePhase) * uTurbulence * 0.4;
+             float angle = baseAngle + wobble;
+             vec2 windDir = vec2(cos(angle), sin(angle));
+             vec2 perpDir = vec2(-windDir.y, windDir.x);
+
+             float along = dot(origin, windDir);
+
+             vec2 noiseUV = origin * 0.03;
+             float noiseVal = texture2D(uNoiseMap, noiseUV).r;
+             float noiseJitter = (noiseVal - 0.5) * 2.0;
+
+             float gustPhase = along * uGustScale - timeVal * uWindSpeed * 0.6 + noiseJitter * 1.5;
+             float gust = pow(sin(gustPhase) * 0.5 + 0.5, 1.6);
+
+             float chopPhase = along * (uGustScale * 2.7) - timeVal * uWindSpeed * 1.3 + bladePhase;
+             float chop = sin(chopPhase) * 0.5 + 0.5;
+
+             float intensity = (0.25 + gust * 0.85 + chop * 0.18) * ampVar;
+
+             float BEND_GAIN = 3.0;
+             float phi = clamp(uWindStrength * intensity * BEND_GAIN, 0.0, 1.6);
+
+             float bendExponent = 1.5;
+             float shaped = pow(t, bendExponent);
+             float a = phi * shaped;
+             float safePhi = max(phi, 0.001);
+             float R = height / safePhi;
+             float u = R * (1.0 - cos(a));
+             float dv = R * sin(a) - localPos.y;
+
+             float flutterMask = smoothstep(0.55, 1.0, t);
+             float flutterPhase = timeVal * 10.0 + bladeSeed * 3.0 + along * 0.8;
+             float flutterAmt = sin(flutterPhase) * uFlutter * 0.08 * flutterMask;
+
+             vec2 horiz = windDir * u + perpDir * flutterAmt;
+
+             float cosY = facing.x;
+             float sinY = facing.y;
+             float localX = horiz.x * cosY - horiz.y * sinY;
+             float localZ = horiz.x * sinY + horiz.y * cosY;
+
+             return vec3(localX, dv, localZ);
+         }
+        `
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+         float instanceIdx = float(gl_InstanceID);
+         vec3 sway = getWindSway(position, aOrigin, aFacing, uTime, instanceIdx);
+
+         float hNoise = hash(aOrigin + vec2(53.0, 17.0));
+         float hFactor = clamp(1.0 + (hNoise - 0.5) * 2.0 * uHeightVariation, 0.2, 1.8);
+
+         vec3 swayed = position + sway;
+         transformed = vec3(swayed.x, swayed.y * hFactor, swayed.z);
+         vInstanceSeed = hash(instanceIdx + 13.37);
+        `
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>
+         #ifdef USE_INSTANCING
+             vWorldPosition = ( instanceMatrix * vec4( swayed, 1.0 ) ).xyz;
+             vWorldPosition.y *= hFactor;
+             vWorldPosition = ( modelMatrix * vec4( vWorldPosition, 1.0 ) ).xyz;
+         #else
+             vWorldPosition = ( modelMatrix * vec4( swayed, 1.0 ) ).xyz;
+             vWorldPosition.y *= hFactor;
+         #endif
+         vHeightAlongBlade = clamp(position.y / uBladeHeight, 0.0, 1.0);
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vWorldPosition;
+         varying float vHeightAlongBlade;
+         varying float vInstanceSeed;
+
+         uniform float uTime;
+         uniform sampler2D uNoiseMap;
+         uniform vec3 uRootColor;
+         uniform vec3 uTipColor;
+         uniform vec3 uRootColorB;
+         uniform vec3 uTipColorB;
+         uniform float uColorVariation;
+         uniform float uColorPatchScale;
+         uniform float uMacroVariation;
+         uniform float uMacroScale;
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        `#include <normal_fragment_begin>
+         vec3 skyNormalWorld = (vec4(normal, 0.0) * viewMatrix).xyz;
+         skyNormalWorld = normalize(vec3(skyNormalWorld.x, abs(skyNormalWorld.y), skyNormalWorld.z));
+         normal = normalize( ( viewMatrix * vec4(skyNormalWorld, 0.0) ).xyz );
+         #ifdef DOUBLE_SIDED
+             normal = normal * ( float( gl_FrontFacing ) * 2.0 - 1.0 );
+         #endif
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         float gradT = pow(vHeightAlongBlade, 1.4);
+         vec3 gradientA = mix(uRootColor, uTipColor, gradT);
+         vec3 gradientB = mix(uRootColorB, uTipColorB, gradT);
+
+         vec2 patchUV = vWorldPosition.xz * uColorPatchScale * 0.25;
+         float patchNoise = texture2D(uNoiseMap, patchUV).r;
+         float patchBlend = clamp(patchNoise * uColorVariation, 0.0, 1.0);
+         vec3 baseColor = mix(gradientA, gradientB, patchBlend);
+
+         vec2 macroUV = (vWorldPosition.xz + vec2(137.0, 91.0)) * uMacroScale * 0.15;
+         float macroNoise = texture2D(uNoiseMap, macroUV).r;
+         float macroFactor = 1.0 + (macroNoise - 0.5) * 2.0 * uMacroVariation;
+
+         float brightness = mix(0.85, 1.15, vInstanceSeed);
+         vec3 finalColor = baseColor * macroFactor * brightness;
+         diffuseColor = vec4( finalColor, opacity );
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+         vec3 sunDir = vec3(0.4243, 0.7071, 0.5657); // World-space sun direction
+         vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+
+         float transDistortion = 0.5;
+         vec3 transLightDir = normalize(sunDir + skyNormalWorld * transDistortion);
+         float backLight = pow(max(dot(viewDir, -transLightDir), 0.0), 3.0);
+         float thicknessMask = pow(vHeightAlongBlade, 1.5);
+         vec3 translucencyColor = vec3(207.0/255.0, 224.0/255.0, 106.0/255.0);
+         vec3 translucency = translucencyColor * backLight * thicknessMask * 1.2;
+
+         float fresnelVal = pow(1.0 - max(dot(skyNormalWorld, viewDir), 0.0), 4.0);
+         vec3 fresnelColor = vec3(234.0/255.0, 242.0/255.0, 192.0/255.0);
+         vec3 fresnelRim = fresnelColor * fresnelVal * 0.25;
+
+         totalEmissiveRadiance += (translucency + fresnelRim);
+        `
+      );
+    };
+
+    const originArray = new Float32Array(GRASS_COUNT * 2);
+    const facingArray = new Float32Array(GRASS_COUNT * 2);
+
+    const dummy = new THREE.Object3D();
+
+    let _seed = 12345;
+    function seededRandom() {
+      _seed = (_seed * 16807) % 2147483647;
+      return (_seed - 1) / 2147483646;
+    }
+
+    const instancedGrass = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_COUNT);
+    instancedGrass.receiveShadow = true;
+
+    let placed = 0;
+    while (placed < GRASS_COUNT) {
+      const x = (seededRandom() - 0.5) * SPREAD;
+      const z = (seededRandom() - 0.5) * SPREAD;
+
+      if (Math.sqrt(x * x + z * z) < CLEAR_RADIUS) continue;
+
+      dummy.position.set(x, 0, z);
+
+      const angleY = seededRandom() * Math.PI * 2;
+      const bendX = (seededRandom() - 0.5) * 0.1;
+      const bendZ = (seededRandom() - 0.5) * 0.1;
+      dummy.rotation.set(bendX, angleY, bendZ);
+
+      const scale = 0.22;
+      const w = (0.8 + seededRandom() * 0.4) * scale;
+      const h = (0.8 + seededRandom() * 0.5) * scale;
+      dummy.scale.set(w, h, w);
+      dummy.updateMatrix();
+      instancedGrass.setMatrixAt(placed, dummy.matrix);
+
+      originArray[placed * 2 + 0] = x;
+      originArray[placed * 2 + 1] = z;
+      facingArray[placed * 2 + 0] = Math.cos(angleY);
+      facingArray[placed * 2 + 1] = Math.sin(angleY);
+
+      placed++;
+    }
+
+    grassGeo.setAttribute('aOrigin', new THREE.InstancedBufferAttribute(originArray, 2));
+    grassGeo.setAttribute('aFacing', new THREE.InstancedBufferAttribute(facingArray, 2));
+
+    window._grassMaterial = grassMat;
+    scene.add(instancedGrass);
+    console.log('Procedural Ghibli Grass loaded successfully:', GRASS_COUNT, 'instances.');
+    onModelLoaded();
+  }, (progress) => {
+    if (progress.total) loadProgress.grass = progress.loaded / progress.total;
+    updateLoader();
+  }, (err) => {
+    console.error('Grass GLB load FAILED:', err);
   });
-
-  // Inject wind into vertex shader — runs on GPU, zero CPU cost
-  grassMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = { value: 0 };
-    // Store ref so we can update uTime each frame
-    grassMat.userData.shader = shader;
-
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <common>',
-      `#include <common>
-       uniform float uTime;
-      `
-    );
-    // Displace the top of each blade (higher Y = more sway)
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
-       // World position of instance for spatial variation
-       vec4 worldPos = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-       float phase = worldPos.x * 0.8 + worldPos.z * 0.6 + uTime * 2.0;
-       float phase2 = worldPos.x * 0.3 - worldPos.z * 0.9 + uTime * 1.3;
-       // Sway increases with height (position.y normalized to blade)
-       float heightFactor = clamp(position.y / 0.35, 0.0, 1.0);
-       float sway = sin(phase) * 0.04 * heightFactor;
-       float sway2 = cos(phase2) * 0.02 * heightFactor;
-       transformed.x += sway;
-       transformed.z += sway2;
-      `
-    );
-  };
-
-  const grass = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_COUNT);
-  grass.receiveShadow = true;
-
-  const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
-
-  const palettes = [
-    0x3a6b22, 0x4a8c2f, 0x5c9c3a,
-    0x2d5a1a, 0x6aaa40, 0x4e7a28,
-  ];
-
-  let placed = 0;
-  while (placed < GRASS_COUNT) {
-    const x = (Math.random() - 0.5) * SPREAD;
-    const z = (Math.random() - 0.5) * SPREAD;
-    if (Math.sqrt(x * x + z * z) < CLEAR_RADIUS) continue;
-
-    dummy.position.set(x, 0, z);
-
-    const angleY = Math.random() * Math.PI * 2;
-    const bendX = (Math.random() - 0.5) * 0.4;
-    const bendZ = (Math.random() - 0.5) * 0.4;
-    dummy.rotation.set(bendX, angleY, bendZ);
-
-    // Thin blades with lush height variation
-    const w = 0.3 + Math.random() * 0.4;
-    const h = 0.5 + Math.random() * 1.0;
-    dummy.scale.set(w, h, w);
-
-    dummy.updateMatrix();
-    grass.setMatrixAt(placed, dummy.matrix);
-
-    const hex = palettes[Math.floor(Math.random() * palettes.length)];
-    color.setHex(hex);
-    color.lerp(new THREE.Color(0xffffff), Math.random() * 0.08);
-    grass.setColorAt(placed, color);
-
-    placed++;
-  }
-
-  // Expose for animate loop to update wind time
-  window._grassMaterial = grassMat;
-  scene.add(grass);
 }
 
 // Soft shadow blob under character
@@ -619,7 +824,6 @@ let faceMesh = null;
 const FACE_KEYS = { smile: 'smileBig', eyes: 'happyEyesBig' };
 
 // ── Load model ──
-const loader = new GLTFLoader();
 loader.load('models/po_expressive.glb', (gltf) => {
   const model = gltf.scene;
 
@@ -1185,6 +1389,11 @@ function animate() {
   // ── Grass wind (GPU shader uniform) ──
   if (window._grassMaterial?.userData?.shader) {
     window._grassMaterial.userData.shader.uniforms.uTime.value = clock.elapsedTime;
+  }
+
+  // ── Sky procedural clouds (GPU shader uniform) ──
+  if (window._skyMaterial) {
+    window._skyMaterial.uniforms.uTime.value = clock.elapsedTime;
   }
 
   // ── Bamboo wind sway ──

@@ -571,6 +571,8 @@ scene.add(ground);
       roughness: 0.85,
       metalness: 0.0,
       side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.8,
     });
 
     grassMat.onBeforeCompile = (shader) => {

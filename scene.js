@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 const loader = new GLTFLoader();
 
@@ -318,6 +322,9 @@ function resize() {
   const w = panel.clientWidth;
   const h = panel.clientHeight;
   renderer.setSize(w, h);
+  if (composer) {
+    composer.setSize(w, h);
+  }
   camera.aspect = w / h;
 
   const isMobile = w < 768;
@@ -364,6 +371,24 @@ function resize() {
 
 // ── Scene ──
 const scene = new THREE.Scene();
+
+// ── Postprocessing (Depth of Field) ──
+let composer = null;
+let bokehPass = null;
+
+composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+bokehPass = new BokehPass(scene, camera, {
+  focus: 4.5,
+  aperture: 0.003, // much wider focus range to keep Po perfectly sharp
+  maxblur: 0.006,  // subtle background blur that doesn't smear details
+});
+composer.addPass(bokehPass);
+
+const outputPass = new OutputPass();
+composer.addPass(outputPass);
 
 // ── Sky background & Environment map (Sunset Hybrid) ──
 const skyNoiseMap = new THREE.TextureLoader().load('assets/perlin.webp');
@@ -2170,7 +2195,15 @@ function animate() {
     inf[ei] = lerp(inf[ei], eyesTarget, eyesTarget > inf[ei] ? 0.10 : 0.04);
   }
 
-  renderer.render(scene, camera);
+  if (composer) {
+    // Dynamically calculate focus plane distance based on the camera position
+    // relative to Po's face center (stable point at 0, 1.1, 0.2) to prevent any blur on Po
+    const facePos = new THREE.Vector3(0, 1.1, 0.2);
+    bokehPass.uniforms[ 'focus' ].value = camera.position.distanceTo(facePos);
+    composer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 // ── Handle resize ──

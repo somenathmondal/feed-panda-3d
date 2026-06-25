@@ -5,7 +5,7 @@ const loader = new GLTFLoader();
 
 // ── Loader UI ──
 const loaderOverlay = document.getElementById('loaderOverlay');
-const loaderBar = document.getElementById('loaderBar');
+const yinyangWrapper = document.getElementById('yinyangWrapper');
 const loaderText = document.getElementById('loaderText');
 const loaderSubtitle = document.querySelector('.loader-subtitle');
 
@@ -22,7 +22,18 @@ function updateLoader() {
   // Po is 75%, bamboo 15%, dumpling 5%, grass 5%
   const total = loadProgress.po * 0.75 + loadProgress.bamboo * 0.15 + loadProgress.dumpling * 0.05 + loadProgress.grass * 0.05;
   const pct = Math.min(Math.round(total * 100), 100);
-  loaderBar.style.width = pct + '%';
+  
+  if (yinyangWrapper) {
+    yinyangWrapper.style.setProperty('--progress', pct + '%');
+    
+    // Dynamically speed up the spin of the Yin Yang symbol as it loads
+    const yinyangSymbol = document.getElementById('yinyangSymbol');
+    if (yinyangSymbol) {
+      const speed = 3.5 - (total * 2.9); // spins faster (from 3.5s to 0.6s) as elements load
+      yinyangSymbol.style.setProperty('--spin-speed', speed + 's');
+    }
+  }
+  
   loaderText.textContent = `Loading... ${pct}%`;
 
   // Rotate subtitles at milestones
@@ -139,6 +150,7 @@ function showChatBubble(msg) {
 const clickableTiles = [];
 
 
+const loadStartTime = Date.now();
 let modelsLoaded = 0;
 function onModelLoaded() {
   modelsLoaded++;
@@ -148,6 +160,13 @@ function onModelLoaded() {
     loadProgress.bamboo = 1;
     loadProgress.grass = 1;
     updateLoader();
+    
+    // Ensure the loading screen stays visible for at least 1.8 seconds for smooth UX
+    const elapsedTime = Date.now() - loadStartTime;
+    const minTime = 1800; // 1.8s
+    const delay = Math.max(0, minTime - elapsedTime);
+    console.log('Loader complete! Elapsed:', elapsedTime, 'ms. Delay:', delay, 'ms.');
+    
     setTimeout(() => {
       loaderOverlay.classList.add('hidden');
       // Show hint toast after loader fades
@@ -173,7 +192,7 @@ function onModelLoaded() {
       };
       document.addEventListener('click', startMusic, { once: true });
       document.addEventListener('touchstart', startMusic, { once: true });
-    }, 400);
+    }, delay);
   }
 }
 

@@ -33,7 +33,8 @@ body {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  /* RedSands theme: dark reddish-brown gradient */
+  background: linear-gradient(135deg, #241111 0%, #3B1E1E 50%, #4D2525 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -53,7 +54,7 @@ body {
   gap: 28px;
 }
 
-/* Panda Face */
+/* Panda Face - Styled to match the RedSands palette */
 .panda-face {
   position: relative;
   width: 120px;
@@ -80,11 +81,11 @@ body {
 .panda-ear {
   width: 36px;
   height: 36px;
-  background: #1a1a2e;
+  background: #1e0e0e; /* RedSands warm black */
   border-radius: 50%;
   position: absolute;
   top: 5px;
-  box-shadow: inset 0 0 0 6px #2a2a4a;
+  box-shadow: inset 0 0 0 6px #3b1e1e; /* RedSands warm brown hollow */
 }
 
 .panda-ear-left { left: 5px; }
@@ -93,7 +94,7 @@ body {
 .panda-eye {
   width: 30px;
   height: 26px;
-  background: #1a1a2e;
+  background: #1e0e0e;
   border-radius: 50%;
   position: absolute;
   top: 28px;
@@ -122,7 +123,7 @@ body {
 .panda-nose {
   width: 14px;
   height: 10px;
-  background: #1a1a2e;
+  background: #1e0e0e;
   border-radius: 50%;
   position: absolute;
   top: 55px;
@@ -133,7 +134,7 @@ body {
 .panda-mouth {
   width: 20px;
   height: 10px;
-  border-bottom: 3px solid #1a1a2e;
+  border-bottom: 3px solid #1e0e0e;
   border-radius: 0 0 50% 50%;
   position: absolute;
   top: 63px;
@@ -141,23 +142,76 @@ body {
   transform: translateX(-50%);
 }
 
-/* Progress Bar */
-.loader-bar-wrapper {
-  width: 240px;
-  height: 12px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.15);
+/* Yin Yang Circular Progress Loader */
+.yinyang-wrapper {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  /* Conic gradient driven by javascript --progress custom property */
+  background: conic-gradient(
+    #ffffff 0%,
+    #ffffff var(--progress, 0%),
+    rgba(255, 255, 255, 0.05) var(--progress, 0%),
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 25px rgba(255, 255, 255, 0.08);
+  transition: transform 0.3s ease;
 }
 
-.loader-bar {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #fff 0%, #e0e0e0 100%);
-  border-radius: 6px;
-  transition: width 0.3s ease;
-  box-shadow: 0 0 10px rgba(255,255,255,0.3);
+.yinyang-mask {
+  width: 124px; /* leaves an 8px circular border ring */
+  height: 124px;
+  border-radius: 50%;
+  background: #3B1E1E; /* matches center of RedSands overlay background */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.4);
+}
+
+.yinyang {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  /* Left-half white, right-half dark reddish-black */
+  background: linear-gradient(to right, #ffffff 50%, #1e0e0e 50%);
+  border: 2px solid #1e0e0e;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  animation: yinyangSpin var(--spin-speed, 3.5s) linear infinite;
+}
+
+.yinyang::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 27px; /* (108 - 54)/2 = 27px to center horizontally */
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  /* Dark circle with white dot */
+  background: radial-gradient(circle, #ffffff 8px, #1e0e0e 8px);
+}
+
+.yinyang::after {
+  content: "";
+  position: absolute;
+  top: 54px;
+  left: 27px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  /* White circle with dark dot */
+  background: radial-gradient(circle, #1e0e0e 8px, #ffffff 8px);
+}
+
+@keyframes yinyangSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .loader-text {

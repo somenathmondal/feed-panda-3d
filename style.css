@@ -276,6 +276,16 @@ body {
   z-index: 1000;
   display: flex;
   gap: 12px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: all 0.6s ease;
+}
+
+.loader-overlay.hidden ~ .credits-container {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .credit-link {

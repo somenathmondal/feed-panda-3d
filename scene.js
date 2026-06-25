@@ -39,6 +39,14 @@ function hideLoaderOverlay() {
   console.log('Loader complete! Hiding overlay.');
   loaderOverlay.classList.add('hidden');
   
+  // Show music button and fade it in
+  if (typeof musicBtn !== 'undefined') {
+    musicBtn.style.display = 'flex';
+    setTimeout(() => {
+      musicBtn.style.opacity = '0.7';
+    }, 50);
+  }
+  
   // Show hint toast after loader fades
   setTimeout(() => {
     if (isTouchDevice) {
@@ -2356,7 +2364,7 @@ musicBtn.style.cssText = `
   width: 48px; height: 48px; border-radius: 50%;
   background: rgba(0,0,0,0.5); color: #fff; border: 2px solid rgba(255,255,255,0.3);
   font-size: 22px; cursor: pointer; backdrop-filter: blur(8px);
-  transition: all 0.3s ease; opacity: 0.7; display: flex;
+  transition: all 0.3s ease; opacity: 0; display: none;
   align-items: center; justify-content: center; font-family: sans-serif;
 `;
 musicBtn.addEventListener('mouseenter', () => { musicBtn.style.opacity = '1'; musicBtn.style.transform = 'scale(1.1)'; });

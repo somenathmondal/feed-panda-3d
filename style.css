@@ -313,7 +313,7 @@ body {
 
 @media (max-width: 600px) {
   .credits-container {
-    flex-direction: column;
+    flex-direction: row;
     gap: 8px;
     bottom: 20px;
     left: 20px;

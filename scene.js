@@ -18,30 +18,105 @@ const subtitles = [
   'Skadooshing...',
 ];
 
+let targetProgress = 0;
+let visualProgress = 0;
+let lastLoaderTime = 0;
+let loaderHidden = false;
+
 function updateLoader() {
-  // Po is 75%, bamboo 15%, dumpling 5%, grass 5%
   const total = loadProgress.po * 0.75 + loadProgress.bamboo * 0.15 + loadProgress.dumpling * 0.05 + loadProgress.grass * 0.05;
-  const pct = Math.min(Math.round(total * 100), 100);
+  targetProgress = Math.min(Math.round(total * 100), 100);
+}
+
+function hideLoaderOverlay() {
+  if (loaderHidden) return;
+  loaderHidden = true;
   
+  console.log('Loader complete! Hiding overlay.');
+  loaderOverlay.classList.add('hidden');
+  
+  // Show hint toast after loader fades
+  setTimeout(() => {
+    if (isTouchDevice) {
+      showToast('Drag the dumpling to Po\'s mouth and hold it there!', 5000);
+    } else {
+      showToast('Move your mouse to feed Po the dumpling', 5000);
+    }
+  }, 600);
+  
+  // "Feed me" bubble after 2s
+  setTimeout(() => showChatBubble('Feed me!'), 2000);
+  
+  // Start music on first user interaction
+  const startMusic = () => {
+    if (!oogwayMusic.playing) {
+      oogwayMusic.start();
+      musicBtn.innerHTML = '♪';
+      musicBtn.title = 'Mute';
+      musicBtn.style.borderColor = 'rgba(255,255,255,0.6)';
+    }
+    document.removeEventListener('click', startMusic);
+    document.removeEventListener('touchstart', startMusic);
+  };
+  document.addEventListener('click', startMusic, { once: true });
+  document.addEventListener('touchstart', startMusic, { once: true });
+}
+
+function tickLoader(timestamp) {
+  if (visualProgress >= 100) {
+    if (modelsLoaded >= 4) {
+      hideLoaderOverlay();
+      return;
+    }
+  }
+
+  if (!lastLoaderTime) lastLoaderTime = timestamp;
+  const delta = (timestamp - lastLoaderTime) / 1000;
+  lastLoaderTime = timestamp;
+
+  // Reaches 100% in exactly 1.8s (100 / 1.8 = 55.56)
+  const maxStep = 55.56 * delta;
+
+  if (visualProgress < targetProgress) {
+    visualProgress = Math.min(visualProgress + maxStep, targetProgress);
+  }
+
+  const displayPct = Math.min(Math.round(visualProgress), 100);
+
   if (yinyangWrapper) {
-    yinyangWrapper.style.setProperty('--progress', pct + '%');
+    yinyangWrapper.style.setProperty('--progress', displayPct + '%');
+    yinyangWrapper.style.setProperty('--progress-num', displayPct);
     
-    // Dynamically speed up the spin of the Yin Yang symbol as it loads
     const yinyangSymbol = document.getElementById('yinyangSymbol');
     if (yinyangSymbol) {
-      const speed = 3.5 - (total * 2.9); // spins faster (from 3.5s to 0.6s) as elements load
+      const speed = 3.5 - ((displayPct / 100) * 2.9);
       yinyangSymbol.style.setProperty('--spin-speed', speed + 's');
     }
   }
-  
-  loaderText.textContent = `Loading... ${pct}%`;
 
-  // Rotate subtitles at milestones
-  if (pct > 20 && pct <= 40) loaderSubtitle.textContent = subtitles[1];
-  else if (pct > 40 && pct <= 60) loaderSubtitle.textContent = subtitles[2];
-  else if (pct > 60 && pct <= 80) loaderSubtitle.textContent = subtitles[3];
-  else if (pct > 80) loaderSubtitle.textContent = subtitles[4];
+  if (loaderText) {
+    loaderText.textContent = `Loading... ${displayPct}%`;
+  }
+
+  if (loaderSubtitle) {
+    if (displayPct > 20 && displayPct <= 40) loaderSubtitle.textContent = subtitles[1];
+    else if (displayPct > 40 && displayPct <= 60) loaderSubtitle.textContent = subtitles[2];
+    else if (displayPct > 60 && displayPct <= 80) loaderSubtitle.textContent = subtitles[3];
+    else if (displayPct > 80) loaderSubtitle.textContent = subtitles[4];
+  }
+
+  if (displayPct < 100 || modelsLoaded < 4) {
+    requestAnimationFrame(tickLoader);
+  } else {
+    hideLoaderOverlay();
+  }
 }
+
+// Start smooth visual loading loop
+requestAnimationFrame((t) => {
+  lastLoaderTime = t;
+  requestAnimationFrame(tickLoader);
+});
 
 const toast = document.getElementById('toast');
 const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -150,7 +225,6 @@ function showChatBubble(msg) {
 const clickableTiles = [];
 
 
-const loadStartTime = Date.now();
 let modelsLoaded = 0;
 function onModelLoaded() {
   modelsLoaded++;
@@ -160,39 +234,6 @@ function onModelLoaded() {
     loadProgress.bamboo = 1;
     loadProgress.grass = 1;
     updateLoader();
-    
-    // Ensure the loading screen stays visible for at least 1.8 seconds for smooth UX
-    const elapsedTime = Date.now() - loadStartTime;
-    const minTime = 1800; // 1.8s
-    const delay = Math.max(0, minTime - elapsedTime);
-    console.log('Loader complete! Elapsed:', elapsedTime, 'ms. Delay:', delay, 'ms.');
-    
-    setTimeout(() => {
-      loaderOverlay.classList.add('hidden');
-      // Show hint toast after loader fades
-      setTimeout(() => {
-        if (isTouchDevice) {
-          showToast('Drag the dumpling to Po\'s mouth and hold it there!', 5000);
-        } else {
-          showToast('Move your mouse to feed Po the dumpling', 5000);
-        }
-      }, 600);
-      // "Feed me" bubble after 2s
-      setTimeout(() => showChatBubble('Feed me!'), 2000);
-      // Start music on first user interaction (browser autoplay policy)
-      const startMusic = () => {
-        if (!oogwayMusic.playing) {
-          oogwayMusic.start();
-          musicBtn.innerHTML = '♪';
-          musicBtn.title = 'Mute';
-          musicBtn.style.borderColor = 'rgba(255,255,255,0.6)';
-        }
-        document.removeEventListener('click', startMusic);
-        document.removeEventListener('touchstart', startMusic);
-      };
-      document.addEventListener('click', startMusic, { once: true });
-      document.addEventListener('touchstart', startMusic, { once: true });
-    }, delay);
   }
 }
 

@@ -172,41 +172,33 @@ body {
   justify-content: center;
   box-shadow: inset 0 0 10px rgba(0,0,0,0.4);
 }
-
-.yinyang {
-  position: relative;
+.yinyang-svg {
   width: 108px;
   height: 108px;
   border-radius: 50%;
-  /* Left-half white, right-half dark reddish-black */
-  background: linear-gradient(to right, #ffffff 50%, #1e0e0e 50%);
-  border: 2px solid #1e0e0e;
   box-shadow: 0 4px 15px rgba(0,0,0,0.3);
   animation: yinyangSpin var(--spin-speed, 3.5s) linear infinite;
+  display: block;
 }
 
-.yinyang::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 27px; /* (108 - 54)/2 = 27px to center horizontally */
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  /* Dark circle with white dot */
-  background: radial-gradient(circle, #ffffff 8px, #1e0e0e 8px);
+.yinyang-base-white,
+.yinyang-base-black {
+  opacity: calc(0.12 + 0.88 * (var(--progress-num, 0) / 100));
+  transition: opacity 0.1s linear;
 }
 
-.yinyang::after {
-  content: "";
-  position: absolute;
-  top: 54px;
-  left: 27px;
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  /* White circle with dark dot */
-  background: radial-gradient(circle, #1e0e0e 8px, #ffffff 8px);
+.trace-circle {
+  stroke-dasharray: 100;
+  stroke-dashoffset: calc(100 - var(--progress-num, 0));
+  transform: rotate(-90deg);
+  transform-origin: center;
+  transition: stroke-dashoffset 0.08s linear;
+}
+
+.trace-scurve {
+  stroke-dasharray: 100;
+  stroke-dashoffset: calc(100 - var(--progress-num, 0));
+  transition: stroke-dashoffset 0.08s linear;
 }
 
 @keyframes yinyangSpin {

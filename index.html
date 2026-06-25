@@ -51,9 +51,35 @@
           <div class="panda-mouth"></div>
         </div>
       </div>
-      <div class="yinyang-wrapper" id="yinyangWrapper" style="--progress: 0%;">
+      <div class="yinyang-wrapper" id="yinyangWrapper" style="--progress: 0%; --progress-num: 0;">
         <div class="yinyang-mask">
-          <div class="yinyang" id="yinyangSymbol"></div>
+          <svg viewBox="0 0 100 100" class="yinyang-svg" id="yinyangSymbol">
+            <defs>
+              <filter id="yinyangGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="1.5" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+            <!-- White base (left side) -->
+            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99 A 49,49 0 0,0 50,1 Z" fill="#ffffff" class="yinyang-base-white" />
+            <!-- Black base (right side) -->
+            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99 A 49,49 0 0,1 50,1 Z" fill="#1e0e0e" class="yinyang-base-black" />
+            
+            <!-- Small dots -->
+            <circle cx="50" cy="25.5" r="7.5" fill="#1e0e0e" class="yinyang-base-white" />
+            <circle cx="50" cy="74.5" r="7.5" fill="#ffffff" class="yinyang-base-black" />
+
+            <!-- Faint tracing guide lines -->
+            <circle cx="50" cy="50" r="49" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+
+            <!-- Glowing active tracing lines -->
+            <circle cx="50" cy="50" r="49" fill="none" stroke="#ffffff" stroke-width="2" pathLength="100" class="trace-circle" filter="url(#yinyangGlow)" />
+            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99" fill="none" stroke="#ffffff" stroke-width="2" pathLength="100" class="trace-scurve" filter="url(#yinyangGlow)" />
+          </svg>
         </div>
       </div>
       <div class="loader-text" id="loaderText">Loading... 0%</div>

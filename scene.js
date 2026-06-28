@@ -1031,6 +1031,21 @@ function gotoTimeOfDay(target) {
   todTween.active = true;
 }
 
+// ── Analytics: track every click → Vercel Web Analytics + GA4 ──
+function trackEvent(name, data) {
+  try { if (window.va) window.va('event', { name, data }); } catch (e) {}
+  try { if (window.gtag) window.gtag('event', name, data || {}); } catch (e) {}
+}
+// Capture-phase so it fires for every click regardless of per-element handlers.
+// Label preference: data-track attr → element id → trimmed text → tag name.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-track], a, button, [role="button"]');
+  const label = el
+    ? (el.dataset.track || el.id || (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase())
+    : (e.target.id || e.target.tagName || 'page').toString().toLowerCase();
+  trackEvent('ui_click', { target: label });
+}, true);
+
 // ── Time-of-day preset buttons (right side; animate seamlessly on click) ──
 (function buildTimeOfDayPresets() {
   const style = document.createElement('style');
@@ -1055,14 +1070,12 @@ function gotoTimeOfDay(target) {
   const btns = presets.map((p) => {
     const b = document.createElement('button');
     b.className = 'tod-btn';
+    b.dataset.track = 'preset_' + p.label.toLowerCase(); // picked up by the global click tracker
     b.innerHTML = `<span class="ic">${p.icon}</span><span class="lbl">${p.label}</span>`;
     b.onclick = () => {
       gotoTimeOfDay(p.t);
       btns.forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
-      // analytics: Vercel Web Analytics + Google Analytics (GA4)
-      if (window.va) window.va('event', { name: 'time_of_day_preset', data: { preset: p.label } });
-      if (window.gtag) window.gtag('event', 'time_of_day_preset', { preset: p.label });
     };
     wrap.appendChild(b);
     return b;
@@ -2985,6 +2998,7 @@ const oogwayMusic = (() => {
 // ── Music toggle button ──
 const musicBtn = document.createElement('button');
 musicBtn.id = 'musicToggle';
+musicBtn.dataset.track = 'music_toggle';
 musicBtn.innerHTML = '♪';
 musicBtn.title = 'Play Oogway Ascends';
 musicBtn.style.cssText = `

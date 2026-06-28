@@ -1019,6 +1019,59 @@ function applyTimeOfDay(t) {
   renderer.toneMappingExposure = s.exposure;
 }
 
+// ── Animated transition between times of day (preset buttons) ──
+const todTween = { active: false, from: 0, to: 0, t0: 0, dur: 2.6 };
+function gotoTimeOfDay(target) {
+  todState.auto = false;                 // pin (stop the auto-cycle)
+  let d = target - todState.t;
+  d -= Math.round(d);                    // shortest path around the 0..1 cycle
+  todTween.from = todState.t;
+  todTween.to = todState.t + d;
+  todTween.t0 = clock.elapsedTime;
+  todTween.active = true;
+}
+
+// ── Time-of-day preset buttons (right side; animate seamlessly on click) ──
+(function buildTimeOfDayPresets() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .tod-presets{position:fixed;right:20px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:10px;z-index:50}
+    .tod-btn{font-family:'Go3v2','Inter',-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;letter-spacing:.5px;color:#fff;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.25);padding:9px 16px;border-radius:24px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;transition:all .3s cubic-bezier(.25,.8,.25,1);box-shadow:0 4px 15px rgba(0,0,0,.15);display:flex;align-items:center;gap:8px;min-width:104px}
+    .tod-btn:hover{transform:translateX(-3px) scale(1.04);background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.6)}
+    .tod-btn.active{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.85);box-shadow:0 6px 20px rgba(255,255,255,.12)}
+    .tod-btn .ic{font-size:16px;line-height:1}
+    @media (max-width:600px){.tod-presets{right:12px;gap:8px}.tod-btn{font-size:11px;padding:7px 11px;min-width:0}.tod-btn .lbl{display:none}}
+  `;
+  document.head.appendChild(style);
+
+  const presets = [
+    { label: 'Dawn',  icon: '🌅', t: 0.25 },
+    { label: 'Day',   icon: '☀️', t: 0.50 },
+    { label: 'Dusk',  icon: '🌆', t: 0.76 },
+    { label: 'Night', icon: '🌙', t: 0.00 },
+  ];
+  const wrap = document.createElement('div');
+  wrap.className = 'tod-presets';
+  const btns = presets.map((p) => {
+    const b = document.createElement('button');
+    b.className = 'tod-btn';
+    b.innerHTML = `<span class="ic">${p.icon}</span><span class="lbl">${p.label}</span>`;
+    b.onclick = () => {
+      gotoTimeOfDay(p.t);
+      btns.forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+    };
+    wrap.appendChild(b);
+    return b;
+  });
+  document.body.appendChild(wrap);
+
+  // hide while the right-docked #debug panel is open (avoid overlap)
+  const sync = () => { wrap.style.display = location.hash.toLowerCase().includes('debug') ? 'none' : 'flex'; };
+  window.addEventListener('hashchange', sync);
+  sync();
+})();
+
 // ── Debug panel (Tweakpane, docked right; gated behind #debug in the URL) ──
 // Tweakpane is lazy-loaded from CDN ONLY when #debug is present, so the
 // production page never fetches it. Add/remove #debug live (no reload needed).
@@ -2756,7 +2809,16 @@ function animate() {
   }
 
   // ── Time-of-day + volumetric clouds (low-res RT, then blitted by the dome) ──
-  if (todState.auto) todState.t = (todState.t + delta / todState.cycleSeconds) % 1;
+  if (todTween.active) {
+    const e = (clock.elapsedTime - todTween.t0) / todTween.dur;
+    if (e >= 1) { todState.t = ((todTween.to % 1) + 1) % 1; todTween.active = false; }
+    else {
+      const k = e < 0.5 ? 4*e*e*e : 1 - Math.pow(-2*e + 2, 3) / 2; // easeInOutCubic
+      todState.t = (((todTween.from + (todTween.to - todTween.from) * k) % 1) + 1) % 1;
+    }
+  } else if (todState.auto) {
+    todState.t = (todState.t + delta / todState.cycleSeconds) % 1;
+  }
   applyTimeOfDay(todState.t);
   // amortized volumetric clouds (opt-in) — render BEFORE flagging the shadow
   // update so this RT pass doesn't consume the throttled shadow-map render

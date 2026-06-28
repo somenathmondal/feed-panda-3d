@@ -311,8 +311,13 @@ window.savePandaImage = () => {
   link.click();
 };
 const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
+// ── Performance config (tunable live in the #debug panel) ──
+const perfCfg = { renderScale: isMobileDevice ? 1.25 : 1.5, shadowHz: 12 };
+let _shadowAccum = 1e9;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, perfCfg.renderScale));
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false;   // throttled manually — the sun moves slowly
+renderer.shadowMap.needsUpdate = true;
 renderer.shadowMap.type = isMobileDevice ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
@@ -544,8 +549,9 @@ dirLight.shadow.camera.right = 3;
 dirLight.shadow.camera.top = 4;
 dirLight.shadow.camera.bottom = -1;
 dirLight.shadow.radius = 4;          // soft shadow blur
-dirLight.shadow.blurSamples = 16;    // smooth penumbra
-dirLight.shadow.bias = -0.0005;
+dirLight.shadow.blurSamples = 8;     // smooth penumbra
+dirLight.shadow.bias = -0.0003;
+dirLight.shadow.normalBias = 0.03;   // cure self-shadow acne on curved faces as the sun moves to grazing angles
 scene.add(dirLight);
 
 const fillLight = new THREE.DirectionalLight(0x88bbee, 0.5);
@@ -555,6 +561,288 @@ scene.add(fillLight);
 const rimLight = new THREE.DirectionalLight(0xffeedd, 0.4);
 rimLight.position.set(0, 2, -3);
 scene.add(rimLight);
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  TIME-OF-DAY  +  VOLUMETRIC CLOUDS
+//  A single `timeOfDay` (0→1 = midnight→midnight) drives the sky palette,
+//  cloud coverage, sun/moon, and the whole scene's lighting. Clouds are
+//  raymarched into a LOW-RES render target once per frame and blitted onto the
+//  existing dome — so the expensive shader never runs at full resolution.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const todState = { t: 0.34, auto: true, cycleSeconds: 120 };
+// Deep-link a fixed time for testing/sharing, e.g. ?t=0.0 (midnight), ?t=0.76 (dusk)
+const _todParams = new URLSearchParams(location.search);
+if (_todParams.has('t')) {
+  const _pt = parseFloat(_todParams.get('t'));
+  if (!Number.isNaN(_pt)) { todState.t = ((_pt % 1) + 1) % 1; todState.auto = false; }
+}
+window.skyDebug = todState;
+
+// ── Keyframes (authored in sRGB hex; ColorManagement converts to linear) ──
+const KF = [
+  { t: 0.00, top:'#070b16', mid:'#0c1326', horizon:'#1a2138', cloudLit:'#7c89ad', cloudShadow:'#222a40', sun:'#cfe0ff', moon:'#e6ecff', coverage:0.55, density:1.4, dir:'#9fb2e0', dirInt:0.50, amb:'#161d33', ambInt:0.34, fillInt:0.25, rimInt:0.20, exposure:1.05 },
+  { t: 0.20, top:'#27345f', mid:'#7a5a7a', horizon:'#caa05f', cloudLit:'#ffcaa0', cloudShadow:'#4a3a52', sun:'#ffd9a0', moon:'#e6ecff', coverage:0.55, density:1.5, dir:'#ffb27a', dirInt:1.00, amb:'#3a3346', ambInt:0.40, fillInt:0.40, rimInt:0.50, exposure:1.00 },
+  { t: 0.26, top:'#3a5aa0', mid:'#e89070', horizon:'#ff9e54', cloudLit:'#ffe0c0', cloudShadow:'#7a5560', sun:'#ffdca8', moon:'#e6ecff', coverage:0.50, density:1.5, dir:'#ffb878', dirInt:1.70, amb:'#5a4a52', ambInt:0.46, fillInt:0.50, rimInt:0.70, exposure:1.00 },
+  { t: 0.35, top:'#2f6fcf', mid:'#7fb0ea', horizon:'#dce9ff', cloudLit:'#ffffff', cloudShadow:'#6f86ad', sun:'#fff4e0', moon:'#e6ecff', coverage:0.45, density:1.5, dir:'#fff0d8', dirInt:2.10, amb:'#9fb6d8', ambInt:0.50, fillInt:0.50, rimInt:0.40, exposure:1.00 },
+  { t: 0.50, top:'#1f6fe0', mid:'#5fa3ee', horizon:'#cfe3ff', cloudLit:'#ffffff', cloudShadow:'#90a8c8', sun:'#ffffff', moon:'#e6ecff', coverage:0.33, density:1.4, dir:'#fffaf0', dirInt:2.50, amb:'#bcd2ee', ambInt:0.55, fillInt:0.50, rimInt:0.40, exposure:1.00 },
+  { t: 0.66, top:'#2a6cc8', mid:'#7fb0e0', horizon:'#ffe6c0', cloudLit:'#fffaf0', cloudShadow:'#8a96b8', sun:'#fff0d0', moon:'#e6ecff', coverage:0.45, density:1.5, dir:'#fff0d8', dirInt:2.10, amb:'#b6c2d8', ambInt:0.50, fillInt:0.50, rimInt:0.45, exposure:1.00 },
+  { t: 0.76, top:'#38406f', mid:'#d27a68', horizon:'#ff9148', cloudLit:'#ffd0a8', cloudShadow:'#6a4a58', sun:'#ffc89a', moon:'#e6ecff', coverage:0.60, density:1.6, dir:'#ff9a5a', dirInt:1.60, amb:'#4a3a48', ambInt:0.44, fillInt:0.45, rimInt:0.70, exposure:1.00 },
+  { t: 0.84, top:'#1b2245', mid:'#5a4a78', horizon:'#a85f6a', cloudLit:'#9a8aae', cloudShadow:'#33304a', sun:'#cdd6f0', moon:'#e6ecff', coverage:0.58, density:1.5, dir:'#8a7ab0', dirInt:0.70, amb:'#20243c', ambInt:0.34, fillInt:0.30, rimInt:0.40, exposure:1.02 },
+];
+// precompute THREE.Color for color fields
+const COLOR_KEYS = ['top','mid','horizon','cloudLit','cloudShadow','sun','moon','dir','amb'];
+for (const k of KF) for (const c of COLOR_KEYS) k['_' + c] = new THREE.Color(k[c]);
+
+// reusable output of a time-of-day sample (no per-frame allocations)
+const tod = {
+  coverage:0, density:0, dirInt:0, ambInt:0, fillInt:0, rimInt:0, exposure:1,
+  sunDir: new THREE.Vector3(), moonDir: new THREE.Vector3(), dayFactor: 1,
+};
+for (const c of COLOR_KEYS) tod[c] = new THREE.Color();
+
+const _sclrp = (a, b, f) => a + (b - a) * f;
+
+function sampleTOD(t) {
+  t = ((t % 1) + 1) % 1;
+  // find bracketing keyframes (wrapping last→first)
+  let a = KF[KF.length - 1], b = KF[0], span, f;
+  if (t < KF[0].t) {
+    a = KF[KF.length - 1]; b = KF[0];
+    span = (1 - a.t) + b.t; f = (t + (1 - a.t)) / span;
+  } else if (t >= KF[KF.length - 1].t) {
+    a = KF[KF.length - 1]; b = KF[0];
+    span = (1 - a.t) + b.t; f = (t - a.t) / span;
+  } else {
+    for (let i = 0; i < KF.length - 1; i++) {
+      if (t >= KF[i].t && t < KF[i + 1].t) { a = KF[i]; b = KF[i + 1]; break; }
+    }
+    span = b.t - a.t; f = (t - a.t) / span;
+  }
+  f = f * f * (3 - 2 * f); // smoothstep easing between keyframes
+  for (const c of COLOR_KEYS) tod[c].copy(a['_' + c]).lerp(b['_' + c], f);
+  tod.coverage  = _sclrp(a.coverage,  b.coverage,  f);
+  tod.density   = _sclrp(a.density,   b.density,   f);
+  tod.dirInt    = _sclrp(a.dirInt,    b.dirInt,    f);
+  tod.ambInt    = _sclrp(a.ambInt,    b.ambInt,    f);
+  tod.fillInt   = _sclrp(a.fillInt,   b.fillInt,   f);
+  tod.rimInt    = _sclrp(a.rimInt,    b.rimInt,    f);
+  tod.exposure  = _sclrp(a.exposure,  b.exposure,  f);
+
+  // celestial bodies: sun rises ~0.25, peaks at noon (0.5), sets ~0.75
+  const phi = (t - 0.25) * Math.PI * 2.0;
+  tod.sunDir.set(Math.cos(phi) * 0.7, Math.sin(phi), 0.45).normalize();
+  tod.moonDir.copy(tod.sunDir).multiplyScalar(-1);
+  tod.dayFactor = THREE.MathUtils.smoothstep(tod.sunDir.y, -0.06, 0.12);
+  return tod;
+}
+
+// ── Sky dome: cheap 2D time-of-day clouds (no render target, ~120fps) ──
+// Drifting FBM clouds sampled from the perlin noise texture on the BackSide dome.
+// The whole palette / sun / moon / coverage is driven by the time-of-day system.
+// This replaced an earlier volumetric raymarcher that was far too heavy for a
+// near-static hero shot (couldn't hold 120fps even when throttled).
+const domeMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: {
+    uTime:         { value: 0 },
+    uNoiseMap:     { value: skyNoiseMap },
+    uTopColor:     { value: new THREE.Color() },
+    uMidColor:     { value: new THREE.Color() },
+    uHorizonColor: { value: new THREE.Color() },
+    uSunColor:     { value: new THREE.Color() },
+    uMoonColor:    { value: new THREE.Color() },
+    uCloudLit:     { value: new THREE.Color() },
+    uCloudShadow:  { value: new THREE.Color() },
+    uSunDir:       { value: new THREE.Vector3() },
+    uMoonDir:      { value: new THREE.Vector3() },
+    uDayFactor:    { value: 1 },
+    uCoverage:     { value: 0.5 },
+  },
+  vertexShader: /* glsl */`
+    varying vec3 vWorldPos;
+    void main() {
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorldPos = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }
+  `,
+  fragmentShader: /* glsl */`
+    uniform vec3 uTopColor, uMidColor, uHorizonColor;
+    uniform vec3 uSunColor, uMoonColor, uCloudLit, uCloudShadow;
+    uniform vec3 uSunDir, uMoonDir;
+    uniform float uTime, uDayFactor, uCoverage;
+    uniform sampler2D uNoiseMap;
+    varying vec3 vWorldPos;
+
+    void main() {
+      vec3 dir = normalize(vWorldPos - cameraPosition);
+      float y = dir.y;
+
+      // gradient sky
+      vec3 col;
+      if (y < 0.0) col = uHorizonColor;
+      else if (y < 0.3) col = mix(uHorizonColor, uMidColor, y / 0.3);
+      else col = mix(uMidColor, uTopColor, (y - 0.3) / 0.7);
+
+      // sun glow (day) + moon disc (night)
+      float sd = max(dot(dir, uSunDir), 0.0);
+      col += uSunColor * pow(sd, 32.0) * 0.5  * uDayFactor;
+      col += uSunColor * pow(sd, 4.0)  * 0.15 * uDayFactor;
+      float md = max(dot(dir, uMoonDir), 0.0);
+      col += uMoonColor * smoothstep(0.9988, 0.9994, md) * 1.6 * (1.0 - uDayFactor);
+      col += uMoonColor * pow(md, 8.0) * 0.12 * (1.0 - uDayFactor);
+
+      // drifting clouds (cylindrical mapping keeps them flat & horizontal)
+      if (y > -0.05) {
+        float angle = atan(dir.z, dir.x);
+        float u = (angle + 3.14159) / 6.28318 * 5.0;
+        float v = 1.0 / (max(dir.y, 0.0) + 0.12) * 0.22;
+        vec2 cloudUV = vec2(u, v);
+        vec2 drift = vec2(0.03, 0.003) * uTime;
+        float warp = texture2D(uNoiseMap, cloudUV * 0.45 + drift * 0.3).r;
+        vec2 uv = cloudUV + drift + vec2(warp * 0.22, warp * 0.14);
+
+        float n1 = texture2D(uNoiseMap, uv).r;
+        float n2 = texture2D(uNoiseMap, uv * 2.8 - drift * 0.4).r;
+        float n3 = texture2D(uNoiseMap, uv * 6.5 + drift * 0.2).r;
+        float noise = n1 * 0.52 + n2 * 0.32 + n3 * 0.16;
+
+        // coverage drives the threshold: more coverage -> more cloud
+        float density = mix(0.62, 0.30, uCoverage);
+        float cloudMask = smoothstep(density, density + 0.12, noise);
+        cloudMask *= smoothstep(-0.05, 0.22, y);
+
+        if (cloudMask > 0.0) {
+          // shade toward whichever body is up
+          vec3 ldir = uDayFactor > 0.5 ? uSunDir : uMoonDir;
+          float lAngle = atan(ldir.z, ldir.x);
+          vec2 offsetUV = uv + vec2(sin(lAngle - angle) * 0.035, -0.01);
+          float o1 = texture2D(uNoiseMap, offsetUV).r;
+          float o2 = texture2D(uNoiseMap, offsetUV * 2.8 - drift * 0.4).r;
+          float o3 = texture2D(uNoiseMap, offsetUV * 6.5 + drift * 0.2).r;
+          float noiseOffset = o1 * 0.52 + o2 * 0.32 + o3 * 0.16;
+
+          float lightFactor = smoothstep(-0.04, 0.08, noise - noiseOffset);
+          vec3 body = mix(uCloudShadow, uCloudLit, lightFactor);
+          float rim = smoothstep(0.0, 0.06, noise - noiseOffset) * (1.0 - smoothstep(density + 0.01, density + 0.12, noise));
+          vec3 rimCol = mix(uMoonColor * 1.1, uSunColor * 1.25, uDayFactor);
+          vec3 cloudCol = mix(body, rimCol, rim * 0.6);
+          col = mix(col, cloudCol, cloudMask * 0.92);
+        }
+      }
+
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+});
+skyMesh.material = domeMat; // dome shows the cheap time-of-day clouds
+
+// ── Apply a sampled time-of-day to the sky dome + scene lighting ──
+function applyTimeOfDay(t) {
+  const s = sampleTOD(t);
+  const u = domeMat.uniforms;
+  u.uTime.value = clock.elapsedTime;
+  u.uCoverage.value = s.coverage;
+  u.uTopColor.value.copy(s.top);
+  u.uMidColor.value.copy(s.mid);
+  u.uHorizonColor.value.copy(s.horizon);
+  u.uCloudLit.value.copy(s.cloudLit);
+  u.uCloudShadow.value.copy(s.cloudShadow);
+  u.uSunColor.value.copy(s.sun);
+  u.uMoonColor.value.copy(s.moon);
+  u.uSunDir.value.copy(s.sunDir);
+  u.uMoonDir.value.copy(s.moonDir);
+  u.uDayFactor.value = s.dayFactor;
+
+  // scene lighting follows the sky; dominant light = whichever body is up
+  const lightDir = s.sunDir.y > 0 ? s.sunDir : s.moonDir;
+  dirLight.color.copy(s.dir);
+  dirLight.intensity = s.dirInt;
+  dirLight.position.copy(lightDir).multiplyScalar(6);
+  dirLight.position.y = Math.max(dirLight.position.y, 1.5);
+  ambientLight.color.copy(s.amb);
+  ambientLight.intensity = s.ambInt;
+  fillLight.intensity = s.fillInt;
+  rimLight.intensity  = s.rimInt;
+  renderer.toneMappingExposure = s.exposure;
+}
+
+// ── Debug panel (Tweakpane, docked right; gated behind #debug in the URL) ──
+// Tweakpane is lazy-loaded from CDN ONLY when #debug is present, so the
+// production page never fetches it. Add/remove #debug live (no reload needed).
+let _pane = null, _paneBuilding = false;
+const _fmtClock = (t) => { const m = Math.round(t * 24 * 60); return String(Math.floor(m / 60) % 24).padStart(2,'0') + ':' + String(m % 60).padStart(2,'0'); };
+
+async function buildDebugPanel() {
+  if (_pane || _paneBuilding) return;
+  _paneBuilding = true;
+  let Pane;
+  try {
+    ({ Pane } = await import('https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/+esm'));
+  } catch (e) {
+    console.error('[sky] failed to load Tweakpane', e);
+    _paneBuilding = false;
+    return;
+  }
+
+  _pane = new Pane({ title: 'Sky · Debug' });
+  // dock to the right edge, vertically centered
+  Object.assign(_pane.element.style, {
+    position: 'fixed', top: '50%', right: '16px', left: 'auto',
+    transform: 'translateY(-50%)', width: '260px', zIndex: '2147483647',
+  });
+
+  const fTod = _pane.addFolder({ title: 'Time of Day', expanded: true });
+  fTod.addBinding(todState, 'auto', { label: 'auto cycle' });
+  const tBinding = fTod.addBinding(todState, 't', { label: 'time', min: 0, max: 1, step: 0.001 });
+  tBinding.on('change', () => { todState.auto = false; }); // manual scrub pauses auto
+  const clockObj = { time: _fmtClock(todState.t) };
+  const clockBinding = fTod.addBinding(clockObj, 'time', { readonly: true, label: 'clock' });
+
+  if (bokehPass) {
+    const fDof = _pane.addFolder({ title: 'Depth of Field', expanded: true });
+    fDof.addBinding(bokehPass, 'enabled', { label: 'enabled' });
+    fDof.addBinding(bokehPass.uniforms['maxblur'], 'value', { label: 'blur', min: 0, max: 0.02, step: 0.0005 });
+  }
+
+  const fPerf = _pane.addFolder({ title: 'Performance', expanded: true });
+  fPerf.addBinding(perfCfg, 'renderScale', { label: 'render scale', min: 0.75, max: 2, step: 0.05 })
+    .on('change', () => { renderer.setPixelRatio(Math.min(window.devicePixelRatio, perfCfg.renderScale)); resize(); });
+  fPerf.addBinding(perfCfg, 'shadowHz', { label: 'shadow Hz', min: 1, max: 60, step: 1 });
+  if (window._grassMesh) fPerf.addBinding(window._grassMesh, 'visible', { label: 'grass' });
+  if (window._grassMaterial) {
+    const grassState = { solid: !window._grassMaterial.transparent };
+    fPerf.addBinding(grassState, 'solid', { label: 'grass solid' })
+      .on('change', () => { window._grassMaterial.transparent = !grassState.solid; window._grassMaterial.needsUpdate = true; });
+  }
+
+  // keep the clock + (during auto-cycle) the time slider in sync with todState
+  window.__skyScrubberSync = () => {
+    clockObj.time = _fmtClock(todState.t);
+    clockBinding.refresh();
+    if (todState.auto) tBinding.refresh();
+  };
+
+  _pane.element.style.display = location.hash.toLowerCase().includes('debug') ? '' : 'none';
+  _paneBuilding = false;
+  console.log('[sky] Tweakpane debug panel mounted (right side)');
+}
+
+function syncDebugPanelVisibility() {
+  const want = location.hash.toLowerCase().includes('debug');
+  if (want) buildDebugPanel();
+  if (_pane) _pane.element.style.display = want ? '' : 'none';
+}
+window.addEventListener('hashchange', syncDebugPanelVisibility);
+syncDebugPanelVisibility();
+
+// optional: start with DoF off via ?dof=off (or ?dof=0)
+if (_todParams.has('dof') && bokehPass) {
+  const v = _todParams.get('dof');
+  bokehPass.enabled = !(v === 'off' || v === '0' || v === 'false');
+}
 
 // ── Ground plane ──
 const groundGeo = new THREE.PlaneGeometry(40, 40);
@@ -595,7 +883,7 @@ scene.add(ground);
     console.log('Grass blade model loaded — height:', bladeHeight);
 
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
-    const GRASS_COUNT = isMobile ? 30000 : 60000;
+    const GRASS_COUNT = isMobile ? 22000 : 40000;
     const SPREAD = 40;
     const CLEAR_RADIUS = 0.6;
 
@@ -604,8 +892,7 @@ scene.add(ground);
       roughness: 0.85,
       metalness: 0.0,
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.8,
+      transparent: false, // opaque → early-Z depth rejection, kills the huge blend overdraw
     });
 
     grassMat.onBeforeCompile = (shader) => {
@@ -868,6 +1155,7 @@ scene.add(ground);
     grassGeo.setAttribute('aFacing', new THREE.InstancedBufferAttribute(facingArray, 2));
 
     window._grassMaterial = grassMat;
+    window._grassMesh = instancedGrass;
     scene.add(instancedGrass);
     console.log('Procedural Ghibli Grass loaded successfully:', GRASS_COUNT, 'instances.');
     onModelLoaded();
@@ -2202,6 +2490,14 @@ function animate() {
     inf[si] = lerp(inf[si], smileTarget, smileTarget > inf[si] ? 0.10 : 0.04);
     inf[ei] = lerp(inf[ei], eyesTarget, eyesTarget > inf[ei] ? 0.10 : 0.04);
   }
+
+  // ── Time-of-day + volumetric clouds (low-res RT, then blitted by the dome) ──
+  if (todState.auto) todState.t = (todState.t + delta / todState.cycleSeconds) % 1;
+  applyTimeOfDay(todState.t);
+  // throttle shadow-map re-renders (full caster pass) — the sun moves slowly
+  _shadowAccum += delta;
+  if (_shadowAccum >= 1 / perfCfg.shadowHz) { _shadowAccum = 0; renderer.shadowMap.needsUpdate = true; }
+  if (window.__skyScrubberSync) window.__skyScrubberSync();
 
   if (composer) {
     // Dynamically calculate focus plane distance based on the camera position

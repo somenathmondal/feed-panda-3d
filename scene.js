@@ -1037,13 +1037,17 @@ function trackEvent(name, data) {
   try { if (window.gtag) window.gtag('event', name, data || {}); } catch (e) {}
 }
 // Capture-phase so it fires for every click regardless of per-element handlers.
-// Label preference: data-track attr → element id → trimmed text → tag name.
+// Each interaction becomes its OWN GA4 event name (sanitized), so the default
+// "Event count by Event name" report breaks them out instead of one ui_click.
+// Label preference: data-track attr → element id → trimmed text → "background".
+function sanitizeEventName(raw) {
+  const n = String(raw).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+  return n || 'ui_click';
+}
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-track], a, button, [role="button"]');
-  const label = el
-    ? (el.dataset.track || el.id || (el.textContent || '').trim().slice(0, 40) || el.tagName.toLowerCase())
-    : (e.target.id || e.target.tagName || 'page').toString().toLowerCase();
-  trackEvent('ui_click', { target: label });
+  const raw = el ? (el.dataset.track || el.id || (el.textContent || '').trim() || el.tagName) : 'background';
+  trackEvent(sanitizeEventName(raw), { kind: 'click' });
 }, true);
 
 // ── Time-of-day preset buttons (right side; animate seamlessly on click) ──
@@ -2432,6 +2436,7 @@ function animate() {
         eat.state = 'lunge';
         eat.timer = 0;
         if (chopsticksMesh) chopsticksMesh.visible = false;
+        if (typeof trackEvent === 'function') trackEvent('feed_panda', { kind: 'interaction' }); // Po eats
 
         // ── Camera Zoom In (Triggered at Lunge) ──
         cameraTargetPos.set(0, 1.3, isTouchDevice ? 3.0 : 3.2);

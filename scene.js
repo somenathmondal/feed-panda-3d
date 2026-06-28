@@ -312,7 +312,7 @@ window.savePandaImage = () => {
 };
 const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 768;
 // ── Performance config (tunable live in the #debug panel) ──
-const perfCfg = { renderScale: isMobileDevice ? 1.25 : 1.5, shadowHz: 12 };
+const perfCfg = { renderScale: isMobileDevice ? 1.25 : 1.5, shadowHz: 60 };
 let _shadowAccum = 1e9;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, perfCfg.renderScale));
 renderer.shadowMap.enabled = true;
@@ -338,6 +338,7 @@ function resize() {
   if (composer) {
     composer.setSize(w, h);
   }
+  if (typeof ensureVolumetricRTs === 'function') ensureVolumetricRTs(w, h);
   camera.aspect = w / h;
 
   const isMobile = w < 768;
@@ -396,7 +397,7 @@ composer.addPass(renderPass);
 bokehPass = new BokehPass(scene, camera, {
   focus: 4.5,
   aperture: 0.003, // much wider focus range to keep Po perfectly sharp
-  maxblur: 0.006,  // subtle background blur that doesn't smear details
+  maxblur: 0.0045, // subtle background blur that doesn't smear details
 });
 composer.addPass(bokehPass);
 
@@ -737,7 +738,239 @@ const domeMat = new THREE.ShaderMaterial({
     }
   `,
 });
-skyMesh.material = domeMat; // dome shows the cheap time-of-day clouds
+skyMesh.material = domeMat; // dome shows the cheap time-of-day clouds (default)
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  AMORTIZED VOLUMETRIC CLOUDS (opt-in, #debug → Volumetric)
+//  Real raymarched 3D clouds without blowing the 120fps budget, by exploiting
+//  the near-static camera: each frame raymarches only 1/N of the rows of a
+//  low-res ping-pong buffer (interleaved) and copies the rest from the previous
+//  frame, blending new samples in (temporal EMA) so low step counts stay clean.
+//  Per-frame cost is even (no spikes): a cheap fullscreen copy + 1/N raymarch.
+// ═══════════════════════════════════════════════════════════════════════════
+// Default ON for desktop (conservative steps/bands so weaker GPUs still hold up);
+// mobile stays on the cheap 2D dome. Crank quality live in the #debug panel.
+const vcfg = { enabled: !isMobileDevice, bands: 8, steps: 28, lightSteps: 4, blend: 0.6, scale: 0.5, maxSide: 1024 };
+let vRTa = null, vRTb = null, vReadRT = null, vWriteRT = null;
+let vFrame = 0, vPrime = true, _vLastW = 1, _vLastH = 1;
+const vScene = new THREE.Scene();
+const vCam = new THREE.Camera();
+const _vInvVP = new THREE.Matrix4();
+
+const vUpdateMat = new THREE.ShaderMaterial({
+  depthTest: false, depthWrite: false, toneMapped: false,
+  uniforms: {
+    uPrev:        { value: null },
+    uActiveRow:   { value: 0 },
+    uBands:       { value: vcfg.bands },
+    uAllRows:     { value: 1 },
+    uBlend:       { value: vcfg.blend },
+    uCamPos:      { value: new THREE.Vector3() },
+    uInvViewProj: { value: new THREE.Matrix4() },
+    uTime:        { value: 0 },
+    uBase:        { value: 55.0 },
+    uTop:         { value: 150.0 },
+    uScale:       { value: 1.2 },
+    uWind:        { value: 1.0 },
+    uAbsorption:  { value: 1.1 },
+    uCoverage:    { value: 0.45 },
+    uDensity:     { value: 1.5 },
+    uLightDir:    { value: new THREE.Vector3() },
+    uLightColor:  { value: new THREE.Color() },
+    uAmbColor:    { value: new THREE.Color() },
+    uSunDir:      { value: new THREE.Vector3() },
+    uMoonDir:     { value: new THREE.Vector3() },
+    uSunColor:    { value: new THREE.Color() },
+    uMoonColor:   { value: new THREE.Color() },
+    uDayFactor:   { value: 1 },
+    uTopColor:    { value: new THREE.Color() },
+    uMidColor:    { value: new THREE.Color() },
+    uHorizonColor:{ value: new THREE.Color() },
+    uSteps:       { value: vcfg.steps },
+    uLightSteps:  { value: vcfg.lightSteps },
+  },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+  `,
+  fragmentShader: /* glsl */`
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D uPrev;
+    uniform float uActiveRow, uBands, uAllRows, uBlend;
+    uniform vec3 uCamPos; uniform mat4 uInvViewProj; uniform float uTime;
+    uniform float uBase, uTop, uScale, uWind, uAbsorption, uCoverage, uDensity;
+    uniform vec3 uLightDir, uLightColor, uAmbColor;
+    uniform vec3 uSunDir, uMoonDir, uSunColor, uMoonColor; uniform float uDayFactor;
+    uniform vec3 uTopColor, uMidColor, uHorizonColor;
+    uniform int uSteps, uLightSteps;
+    const float MAX_DIST = 1500.0;
+
+    float hash(vec3 p){ p=fract(p*0.3183099+0.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+    float noise(vec3 x){
+      vec3 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
+      return mix(mix(mix(hash(i+vec3(0,0,0)),hash(i+vec3(1,0,0)),f.x),
+                     mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+                 mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),
+                     mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+    }
+    const mat3 M = mat3(0.0,0.8,0.6,-0.8,0.36,-0.48,-0.6,-0.48,0.64);
+    float fbm(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<5;i++){ v+=a*noise(p); p=M*p*2.02; a*=0.5; } return v; }
+    float fbm3(vec3 p){ float v=0.0,a=0.5; for(int i=0;i<3;i++){ v+=a*noise(p); p=M*p*2.02; a*=0.5; } return v; }
+    float densityAt(vec3 p, bool cheap){
+      float h=(p.y-uBase)/max(uTop-uBase,1e-3);
+      float fall=smoothstep(0.0,0.25,h)*smoothstep(1.0,0.6,h);
+      if(fall<=0.0) return 0.0;
+      vec3 q=p*(0.01*uScale)+vec3(uTime*uWind*0.02,0.0,uTime*uWind*0.008);
+      float d;
+      if(cheap){ d=fbm3(q)-(1.0-uCoverage); }
+      else { d=fbm(q)-(1.0-uCoverage); d=max(d,0.0); d-=0.18*fbm(q*3.0+1.7); }
+      d=max(d,0.0)*fall;
+      return clamp(d*uDensity,0.0,1.0);
+    }
+    float lightMarch(vec3 p){
+      float stepLen=(uTop-uBase)/float(uLightSteps); float sum=0.0;
+      for(int i=0;i<16;i++){ if(i>=uLightSteps) break; p+=uLightDir*stepLen; sum+=densityAt(p,true); }
+      return exp(-sum*stepLen*uAbsorption);
+    }
+    vec3 skyColor(vec3 rd){
+      float t=clamp(rd.y,-0.1,1.0); vec3 col;
+      if(t<0.0) col=uHorizonColor;
+      else if(t<0.25) col=mix(uHorizonColor,uMidColor,t/0.25);
+      else col=mix(uMidColor,uTopColor,(t-0.25)/0.75);
+      float sd=max(dot(rd,uSunDir),0.0);
+      col+=uSunColor*pow(sd,350.0)*1.6*uDayFactor;
+      col+=uSunColor*pow(sd,8.0)*0.14*uDayFactor;
+      float md=max(dot(rd,uMoonDir),0.0);
+      col+=uMoonColor*smoothstep(0.9988,0.9994,md)*2.0*(1.0-uDayFactor);
+      col+=uMoonColor*pow(md,28.0)*0.16*(1.0-uDayFactor);
+      return col;
+    }
+    void main(){
+      vec4 prev = texture2D(uPrev, vUv);
+      float row = floor(gl_FragCoord.y);
+      bool doRay = (uAllRows > 0.5) || (abs(mod(row, uBands) - uActiveRow) < 0.5);
+      if(!doRay){ gl_FragColor = prev; return; }
+
+      vec4 clip=vec4(vUv*2.0-1.0,1.0,1.0);
+      vec4 wp=uInvViewProj*clip; wp/=wp.w;
+      vec3 ro=uCamPos, rd=normalize(wp.xyz-uCamPos);
+      vec3 sky=skyColor(rd);
+      vec3 c;
+      float tEnter, tExit;
+      if(abs(rd.y)<1e-4){
+        if(ro.y>uBase&&ro.y<uTop){ tEnter=0.0; tExit=MAX_DIST; } else { tEnter=1.0; tExit=0.0; }
+      } else {
+        float t0=(uBase-ro.y)/rd.y, t1=(uTop-ro.y)/rd.y;
+        tEnter=max(min(t0,t1),0.0); tExit=min(max(t0,t1),MAX_DIST);
+      }
+      if(tExit<=tEnter){ c=sky; }
+      else {
+        float stepSize=(tExit-tEnter)/float(uSteps);
+        float t=tEnter+hash(vec3(gl_FragCoord.xy,uTime))*stepSize;
+        vec3 scatter=vec3(0.0); float transmittance=1.0;
+        for(int i=0;i<64;i++){
+          if(i>=uSteps||t>tExit||transmittance<0.01) break;
+          vec3 p=ro+rd*t;
+          float dens=densityAt(p,false);
+          if(dens>0.0){
+            float light=lightMarch(p);
+            vec3 sc=mix(uAmbColor,uLightColor,light);
+            float al=1.0-exp(-dens*stepSize*uAbsorption);
+            scatter+=transmittance*al*sc; transmittance*=1.0-al;
+          }
+          t+=stepSize;
+        }
+        c=sky*transmittance+scatter;
+      }
+      vec3 outc = (uAllRows>0.5 || prev.a<0.5) ? c : mix(prev.rgb, c, uBlend);
+      gl_FragColor = vec4(outc, 1.0);
+    }
+  `,
+});
+vScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), vUpdateMat));
+
+// dome material that blits the accumulated cloud buffer (screen-space UV + 9-tap blur)
+const vBlitMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false,
+  uniforms: { uTex: { value: null }, uTexel: { value: new THREE.Vector2(1/1024, 1/1024) } },
+  vertexShader: /* glsl */`
+    varying vec4 vClip;
+    void main() { vClip = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = vClip; }
+  `,
+  fragmentShader: /* glsl */`
+    uniform sampler2D uTex; uniform vec2 uTexel; varying vec4 vClip;
+    void main() {
+      vec2 uv = (vClip.xy / vClip.w) * 0.5 + 0.5;
+      vec3 c =
+        texture2D(uTex, uv).rgb * 4.0 +
+        texture2D(uTex, uv + vec2( uTexel.x, 0.0)).rgb * 2.0 +
+        texture2D(uTex, uv + vec2(-uTexel.x, 0.0)).rgb * 2.0 +
+        texture2D(uTex, uv + vec2(0.0,  uTexel.y)).rgb * 2.0 +
+        texture2D(uTex, uv + vec2(0.0, -uTexel.y)).rgb * 2.0 +
+        texture2D(uTex, uv + vec2( uTexel.x,  uTexel.y)).rgb +
+        texture2D(uTex, uv + vec2( uTexel.x, -uTexel.y)).rgb +
+        texture2D(uTex, uv + vec2(-uTexel.x,  uTexel.y)).rgb +
+        texture2D(uTex, uv + vec2(-uTexel.x, -uTexel.y)).rgb;
+      gl_FragColor = vec4(c / 16.0, 1.0);
+    }
+  `,
+});
+
+function ensureVolumetricRTs(w, h) {
+  _vLastW = w; _vLastH = h;
+  const dpr = renderer.getPixelRatio();
+  let rw = w * dpr * vcfg.scale, rh = h * dpr * vcfg.scale;
+  const longest = Math.max(rw, rh);
+  if (longest > vcfg.maxSide) { const k = vcfg.maxSide / longest; rw *= k; rh *= k; }
+  const fw = Math.max(1, Math.floor(rw)), fh = Math.max(1, Math.floor(rh));
+  const opts = { type: THREE.HalfFloatType, depthBuffer: false, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter };
+  if (!vRTa) {
+    vRTa = new THREE.WebGLRenderTarget(fw, fh, opts);
+    vRTb = new THREE.WebGLRenderTarget(fw, fh, opts);
+    vReadRT = vRTa; vWriteRT = vRTb;
+  } else {
+    vRTa.setSize(fw, fh); vRTb.setSize(fw, fh);
+  }
+  vBlitMat.uniforms.uTexel.value.set(1 / fw, 1 / fh);
+  vPrime = true; // repopulate the whole buffer after a size change
+}
+
+// render one amortized step into the cloud buffer (call before composer.render)
+function updateVolumetricClouds() {
+  if (!vWriteRT) ensureVolumetricRTs(_vLastW, _vLastH);
+  const u = vUpdateMat.uniforms;
+  u.uPrev.value = vReadRT.texture;
+  u.uActiveRow.value = vFrame % vcfg.bands;
+  u.uBands.value = vcfg.bands;
+  u.uAllRows.value = vPrime ? 1 : 0;
+  u.uBlend.value = vcfg.blend;
+  u.uSteps.value = vcfg.steps;
+  u.uLightSteps.value = vcfg.lightSteps;
+  u.uTime.value = clock.elapsedTime;
+  u.uCamPos.value.copy(camera.position);
+  camera.updateMatrixWorld();
+  _vInvVP.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).invert();
+  u.uInvViewProj.value.copy(_vInvVP);
+
+  const prevTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(vWriteRT);
+  renderer.render(vScene, vCam);
+  renderer.setRenderTarget(prevTarget);
+
+  const tmp = vReadRT; vReadRT = vWriteRT; vWriteRT = tmp; // ping-pong
+  vBlitMat.uniforms.uTex.value = vReadRT.texture;
+  vFrame++; vPrime = false;
+}
+
+function setCloudMode(volumetric) {
+  vcfg.enabled = volumetric;
+  if (volumetric && !vRTa) ensureVolumetricRTs(_vLastW, _vLastH);
+  skyMesh.material = volumetric ? vBlitMat : domeMat;
+  vPrime = true;
+}
+// apply the default mode at startup (desktop → volumetric, mobile → 2D dome)
+setCloudMode(vcfg.enabled);
 
 // ── Apply a sampled time-of-day to the sky dome + scene lighting ──
 function applyTimeOfDay(t) {
@@ -758,6 +991,23 @@ function applyTimeOfDay(t) {
 
   // scene lighting follows the sky; dominant light = whichever body is up
   const lightDir = s.sunDir.y > 0 ? s.sunDir : s.moonDir;
+
+  // mirror into the volumetric material (only rendered when vcfg.enabled)
+  const v = vUpdateMat.uniforms;
+  v.uCoverage.value = s.coverage;
+  v.uDensity.value  = s.density;
+  v.uTopColor.value.copy(s.top);
+  v.uMidColor.value.copy(s.mid);
+  v.uHorizonColor.value.copy(s.horizon);
+  v.uLightColor.value.copy(s.cloudLit);
+  v.uAmbColor.value.copy(s.cloudShadow);
+  v.uSunColor.value.copy(s.sun);
+  v.uMoonColor.value.copy(s.moon);
+  v.uSunDir.value.copy(s.sunDir);
+  v.uMoonDir.value.copy(s.moonDir);
+  v.uLightDir.value.copy(lightDir);
+  v.uDayFactor.value = s.dayFactor;
+
   dirLight.color.copy(s.dir);
   dirLight.intensity = s.dirInt;
   dirLight.position.copy(lightDir).multiplyScalar(6);
@@ -818,6 +1068,13 @@ async function buildDebugPanel() {
       .on('change', () => { window._grassMaterial.transparent = !grassState.solid; window._grassMaterial.needsUpdate = true; });
   }
 
+  const fVol = _pane.addFolder({ title: 'Volumetric clouds (beta)', expanded: true });
+  fVol.addBinding(vcfg, 'enabled', { label: '3D clouds' }).on('change', () => setCloudMode(vcfg.enabled));
+  fVol.addBinding(vcfg, 'bands', { label: 'refresh bands', min: 1, max: 16, step: 1 }).on('change', () => { vPrime = true; });
+  fVol.addBinding(vcfg, 'steps', { label: 'steps', min: 8, max: 48, step: 1 });
+  fVol.addBinding(vcfg, 'lightSteps', { label: 'light steps', min: 2, max: 12, step: 1 });
+  fVol.addBinding(vcfg, 'blend', { label: 'temporal', min: 0.1, max: 1, step: 0.05 });
+
   // keep the clock + (during auto-cycle) the time slider in sync with todState
   window.__skyScrubberSync = () => {
     clockObj.time = _fmtClock(todState.t);
@@ -842,6 +1099,12 @@ syncDebugPanelVisibility();
 if (_todParams.has('dof') && bokehPass) {
   const v = _todParams.get('dof');
   bokehPass.enabled = !(v === 'off' || v === '0' || v === 'false');
+}
+
+// optional: start with the amortized 3D volumetric clouds via ?vol=1
+if (_todParams.has('vol')) {
+  const v = _todParams.get('vol');
+  setCloudMode(!(v === '0' || v === 'off' || v === 'false'));
 }
 
 // ── Ground plane ──
@@ -892,7 +1155,8 @@ scene.add(ground);
       roughness: 0.85,
       metalness: 0.0,
       side: THREE.DoubleSide,
-      transparent: false, // opaque → early-Z depth rejection, kills the huge blend overdraw
+      transparent: true,  // translucent Ghibli look; toggle 'grass solid' in #debug for opaque/perf
+      opacity: 0.8,
     });
 
     grassMat.onBeforeCompile = (shader) => {
@@ -2494,6 +2758,9 @@ function animate() {
   // ── Time-of-day + volumetric clouds (low-res RT, then blitted by the dome) ──
   if (todState.auto) todState.t = (todState.t + delta / todState.cycleSeconds) % 1;
   applyTimeOfDay(todState.t);
+  // amortized volumetric clouds (opt-in) — render BEFORE flagging the shadow
+  // update so this RT pass doesn't consume the throttled shadow-map render
+  if (vcfg.enabled) updateVolumetricClouds();
   // throttle shadow-map re-renders (full caster pass) — the sun moves slowly
   _shadowAccum += delta;
   if (_shadowAccum >= 1 / perfCfg.shadowHz) { _shadowAccum = 0; renderer.shadowMap.needsUpdate = true; }

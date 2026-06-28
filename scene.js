@@ -1060,8 +1060,9 @@ function gotoTimeOfDay(target) {
       gotoTimeOfDay(p.t);
       btns.forEach((x) => x.classList.remove('active'));
       b.classList.add('active');
-      // Vercel Web Analytics custom event
+      // analytics: Vercel Web Analytics + Google Analytics (GA4)
       if (window.va) window.va('event', { name: 'time_of_day_preset', data: { preset: p.label } });
+      if (window.gtag) window.gtag('event', 'time_of_day_preset', { preset: p.label });
     };
     wrap.appendChild(b);
     return b;

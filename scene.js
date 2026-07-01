@@ -1064,7 +1064,19 @@ document.addEventListener('click', (e) => {
     .tod-dial-play-btn{pointer-events:auto;background:none;border:none;color:rgba(255,255,255,0.55);font-size:10px;cursor:pointer;margin-top:2px;transition:color 0.2s, transform 0.1s}
     .tod-dial-play-btn:hover{color:#fff;transform:scale(1.15)}
     .tod-dial-play-btn:active{transform:scale(0.9)}
-    @media (max-width:600px){.tod-presets{right:12px;gap:8px}.tod-btn{font-size:11px;padding:7px 11px;min-width:0}.tod-btn .lbl{display:none}.tod-dial-container{display:none}}
+    @media (max-width:600px){
+      .tod-presets{right:auto;top:20px;left:50%;transform:translateX(-50%);flex-direction:row;align-items:center;gap:8px}
+      .tod-btn{font-size:12px;padding:8px;min-width:0;border-radius:50%;width:38px;height:38px;display:flex;align-items:center;justify-content:center}
+      .tod-btn:hover{transform:scale(1.08)}
+      .tod-btn .lbl{display:none}
+      .tod-dial-container{display:flex;width:74px;height:74px;margin:0;order:3}
+      .tod-dial-time{font-size:10px}
+      .tod-dial-play-btn{font-size:8px;margin-top:0px}
+      .tod-btn:nth-of-type(1){order:1}
+      .tod-btn:nth-of-type(2){order:2}
+      .tod-btn:nth-of-type(3){order:4}
+      .tod-btn:nth-of-type(4){order:5}
+    }
   `;
   document.head.appendChild(style);
 

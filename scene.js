@@ -1110,7 +1110,7 @@ document.addEventListener('click', (e) => {
     </svg>
     <div class="tod-dial-center">
       <div class="tod-dial-time">12:00</div>
-      <button class="tod-dial-play-btn" title="Toggle Auto Cycle">⏸</button>
+      <button class="tod-dial-play-btn" data-track="preset_auto_toggle" title="Toggle Auto Cycle">⏸</button>
     </div>
   `;
   wrap.appendChild(dialDiv);
@@ -1165,6 +1165,9 @@ document.addEventListener('click', (e) => {
     if (isDragging) handleDrag(e);
   });
   window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      trackEvent('time_scrubber_drag', { time: parseFloat(todState.t.toFixed(3)) });
+    }
     isDragging = false;
   });
 
@@ -1177,6 +1180,9 @@ document.addEventListener('click', (e) => {
     if (isDragging) handleDrag(e);
   }, { passive: false });
   window.addEventListener('touchend', () => {
+    if (isDragging) {
+      trackEvent('time_scrubber_drag', { time: parseFloat(todState.t.toFixed(3)) });
+    }
     isDragging = false;
   });
 

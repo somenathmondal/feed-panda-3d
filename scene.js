@@ -9,7 +9,6 @@ const loader = new GLTFLoader();
 
 // ── Loader UI ──
 const loaderOverlay = document.getElementById('loaderOverlay');
-const yinyangWrapper = document.getElementById('yinyangWrapper');
 const loaderText = document.getElementById('loaderText');
 const loaderSubtitle = document.querySelector('.loader-subtitle');
 
@@ -95,16 +94,14 @@ function tickLoader(timestamp) {
 
   const displayPct = Math.min(Math.round(visualProgress), 100);
 
-  if (yinyangWrapper) {
-    yinyangWrapper.style.setProperty('--progress', displayPct + '%');
-    yinyangWrapper.style.setProperty('--progress-num', displayPct);
-    
-    const yinyangSymbol = document.getElementById('yinyangSymbol');
-    if (yinyangSymbol) {
-      const speed = 3.5 - ((displayPct / 100) * 2.9);
-      yinyangSymbol.style.setProperty('--spin-speed', speed + 's');
-    }
-  }
+  // Update SVG Tracing Loader
+  const traceOutlines = document.querySelectorAll('.trace-outline');
+  const dashOffset = 600 - (600 * (displayPct / 100));
+  traceOutlines.forEach(path => {
+    path.style.setProperty('--dash-offset', dashOffset.toString());
+  });
+
+
 
   if (loaderText) {
     loaderText.textContent = `Loading... ${displayPct}%`;

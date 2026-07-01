@@ -47,50 +47,56 @@
   <!-- Loading Screen -->
   <div class="loader-overlay" id="loaderOverlay">
     <div class="loader-content">
-      <div class="panda-face">
-        <div class="panda-ear panda-ear-left"></div>
-        <div class="panda-ear panda-ear-right"></div>
-        <div class="panda-head">
-          <div class="panda-eye panda-eye-left">
-            <div class="panda-pupil"></div>
-          </div>
-          <div class="panda-eye panda-eye-right">
-            <div class="panda-pupil"></div>
-          </div>
-          <div class="panda-nose"></div>
-          <div class="panda-mouth"></div>
-        </div>
-      </div>
-      <div class="yinyang-wrapper" id="yinyangWrapper" style="--progress: 0%; --progress-num: 0;">
-        <div class="yinyang-mask">
-          <svg viewBox="0 0 100 100" class="yinyang-svg" id="yinyangSymbol">
-            <defs>
-              <filter id="yinyangGlow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur stdDeviation="1.5" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            </defs>
-            <!-- White base (left side) -->
-            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99 A 49,49 0 0,0 50,1 Z" fill="#ffffff" class="yinyang-base-white" />
-            <!-- Black base (right side) -->
-            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99 A 49,49 0 0,1 50,1 Z" fill="#1e0e0e" class="yinyang-base-black" />
-            
-            <!-- Small dots -->
-            <circle cx="50" cy="25.5" r="7.5" fill="#1e0e0e" class="yinyang-base-white" />
-            <circle cx="50" cy="74.5" r="7.5" fill="#ffffff" class="yinyang-base-black" />
+      <!-- SVG Panda Liquid Tracing Loader -->
+      <div class="panda-loader-container">
+        <svg viewBox="0 0 360 200" class="panda-svg" id="pandaLoaderSymbol">
+          <defs>
+            <filter id="tracerGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3.5" result="blur1" />
+              <feGaussianBlur stdDeviation="1.5" result="blur2" />
+              <feMerge>
+                <feMergeNode in="blur1" />
+                <feMergeNode in="blur2" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
 
-            <!-- Faint tracing guide lines -->
-            <circle cx="50" cy="50" r="49" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
-            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+          <!-- Guide outlines (faint) -->
+          <!-- Head Outer Silhouette -->
+          <path d="M 180 65 C 155 65 142 75 138 85 C 138 75 134 65 125 57 C 108 43 90 65 106 82 C 112 88 120 90 126 89 C 118 105 118 135 134 148 C 146 158 162 161 180 161 C 198 161 214 158 226 148 C 242 135 242 105 234 89 C 240 90 248 88 254 82 C 270 65 252 43 235 57 C 226 65 222 75 222 85 C 218 75 205 65 180 65 Z" class="guide-outline" />
+          
+          <!-- Eye patches -->
+          <path d="M 142,106 C 135,114 142,126 150,128 C 158,130 165,120 162,112 C 159,104 149,98 142,106 Z" class="guide-outline" />
+          <path d="M 218,106 C 225,114 218,126 210,128 C 202,130 195,120 198,112 C 201,104 211,98 218,106 Z" class="guide-outline" />
+          
+          <!-- Nose & Smile -->
+          <path d="M 174,126 C 172,126 172,129 180,129 C 188,129 188,126 186,126 C 184,126 182,128 180,128 C 178,128 176,126 174,126 Z" class="guide-outline" />
+          <path d="M 172,135 Q 180,140 188,135" class="guide-outline" />
 
-            <!-- Glowing active tracing lines -->
-            <circle cx="50" cy="50" r="49" fill="none" stroke="#ffffff" stroke-width="2" pathLength="100" class="trace-circle" filter="url(#yinyangGlow)" />
-            <path d="M 50,1 A 24.5,24.5 0 0,1 50,50 A 24.5,24.5 0 0,0 50,99" fill="none" stroke="#ffffff" stroke-width="2" pathLength="100" class="trace-scurve" filter="url(#yinyangGlow)" />
-          </svg>
-        </div>
+          <!-- Glowing active outlines (which will trace) -->
+          <!-- Head Silhouette (pathLength 600) -->
+          <path d="M 180 65 C 155 65 142 75 138 85 C 138 75 134 65 125 57 C 108 43 90 65 106 82 C 112 88 120 90 126 89 C 118 105 118 135 134 148 C 146 158 162 161 180 161 C 198 161 214 158 226 148 C 242 135 242 105 234 89 C 240 90 248 88 254 82 C 270 65 252 43 235 57 C 226 65 222 75 222 85 C 218 75 205 65 180 65 Z" class="trace-outline" pathLength="600" />
+          
+          <!-- Eye patches -->
+          <path d="M 142,106 C 135,114 142,126 150,128 C 158,130 165,120 162,112 C 159,104 149,98 142,106 Z" class="trace-outline" pathLength="600" />
+          <path d="M 218,106 C 225,114 218,126 210,128 C 202,130 195,120 198,112 C 201,104 211,98 218,106 Z" class="trace-outline" pathLength="600" />
+
+          <!-- Nose & Smile -->
+          <path d="M 174,126 C 172,126 172,129 180,129 C 188,129 188,126 186,126 C 184,126 182,128 180,128 C 178,128 176,126 174,126 Z" class="trace-outline" pathLength="600" />
+          <path d="M 172,135 Q 180,140 188,135" class="trace-outline" pathLength="600" />
+
+          <!-- Animated eye whites and pupils -->
+          <g class="panda-eyes-g">
+            <!-- Left Eye -->
+            <circle cx="152" cy="112" r="5" fill="#ffffff" />
+            <circle cx="152" cy="112" r="2.5" fill="#1e0e0e" class="pupil-left" />
+
+            <!-- Right Eye -->
+            <circle cx="208" cy="112" r="5" fill="#ffffff" />
+            <circle cx="208" cy="112" r="2.5" fill="#1e0e0e" class="pupil-right" />
+          </g>
+        </svg>
       </div>
       <div class="loader-text" id="loaderText">Loading... 0%</div>
       <div class="loader-subtitle">Preparing dumplings...</div>

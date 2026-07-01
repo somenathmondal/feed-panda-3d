@@ -1056,7 +1056,15 @@ document.addEventListener('click', (e) => {
     .tod-btn:hover{transform:translateX(-3px) scale(1.04);background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.6)}
     .tod-btn.active{background:rgba(255,255,255,.22);border-color:rgba(255,255,255,.85);box-shadow:0 6px 20px rgba(255,255,255,.12)}
     .tod-btn .ic{font-size:16px;line-height:1}
-    @media (max-width:600px){.tod-presets{right:12px;gap:8px}.tod-btn{font-size:11px;padding:7px 11px;min-width:0}.tod-btn .lbl{display:none}}
+    .tod-dial-container{position:relative;width:104px;height:104px;margin:0 auto 5px auto;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);border:1.5px solid rgba(255,255,255,.25);border-radius:50%;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 4px 15px rgba(0,0,0,.15);touch-action:none;user-select:none;transition:all .3s ease}
+    .tod-dial-container:hover{border-color:rgba(255,255,255,0.45);box-shadow:0 6px 20px rgba(0,0,0,0.25)}
+    .tod-dial{width:100%;height:100%;cursor:pointer}
+    .tod-dial-center{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}
+    .tod-dial-time{font-family:monospace;font-size:13px;font-weight:bold;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.6);letter-spacing:0.5px}
+    .tod-dial-play-btn{pointer-events:auto;background:none;border:none;color:rgba(255,255,255,0.55);font-size:10px;cursor:pointer;margin-top:2px;transition:color 0.2s, transform 0.1s}
+    .tod-dial-play-btn:hover{color:#fff;transform:scale(1.15)}
+    .tod-dial-play-btn:active{transform:scale(0.9)}
+    @media (max-width:600px){.tod-presets{right:12px;gap:8px}.tod-btn{font-size:11px;padding:7px 11px;min-width:0}.tod-btn .lbl{display:none}.tod-dial-container{display:none}}
   `;
   document.head.appendChild(style);
 
@@ -1068,10 +1076,37 @@ document.addEventListener('click', (e) => {
   ];
   const wrap = document.createElement('div');
   wrap.className = 'tod-presets';
+
+  // Build dial clock element
+  const dialDiv = document.createElement('div');
+  dialDiv.className = 'tod-dial-container';
+  dialDiv.innerHTML = `
+    <svg class="tod-dial" viewBox="0 0 100 100">
+      <defs>
+        <filter id="dialGlow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="1.5" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <!-- Track -->
+      <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="4" />
+      <!-- Glowing active dial handle pointer -->
+      <circle class="tod-dial-handle" cx="50" cy="10" r="5" fill="#FFB800" filter="url(#dialGlow)" />
+    </svg>
+    <div class="tod-dial-center">
+      <div class="tod-dial-time">12:00</div>
+      <button class="tod-dial-play-btn" title="Toggle Auto Cycle">⏸</button>
+    </div>
+  `;
+  wrap.appendChild(dialDiv);
+
   const btns = presets.map((p) => {
     const b = document.createElement('button');
     b.className = 'tod-btn';
-    b.dataset.track = 'preset_' + p.label.toLowerCase(); // picked up by the global click tracker
+    b.dataset.track = 'preset_' + p.label.toLowerCase();
     b.innerHTML = `<span class="ic">${p.icon}</span><span class="lbl">${p.label}</span>`;
     b.onclick = () => {
       gotoTimeOfDay(p.t);
@@ -1082,6 +1117,104 @@ document.addEventListener('click', (e) => {
     return b;
   });
   document.body.appendChild(wrap);
+
+  // Play/pause btn handler
+  const playBtn = dialDiv.querySelector('.tod-dial-play-btn');
+  playBtn.onclick = (e) => {
+    e.stopPropagation();
+    todState.auto = !todState.auto;
+    updateTimeOfDayUI();
+  };
+
+  // Drag interaction
+  let isDragging = false;
+  const handleDrag = (e) => {
+    const rect = dialDiv.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const dx = clientX - (rect.left + rect.width / 2);
+    const dy = clientY - (rect.top + rect.height / 2);
+    let angle = Math.atan2(dx, -dy);
+    let t = (angle / (2 * Math.PI) + 0.5) % 1.0;
+    if (t < 0) t += 1.0;
+    
+    todState.auto = false;
+    todState.t = t;
+    applyTimeOfDay(t);
+    updateTimeOfDayUI();
+  };
+
+  dialDiv.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.tod-dial-play-btn')) return;
+    isDragging = true;
+    handleDrag(e);
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (isDragging) handleDrag(e);
+  });
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+
+  dialDiv.addEventListener('touchstart', (e) => {
+    if (e.target.closest('.tod-dial-play-btn')) return;
+    isDragging = true;
+    handleDrag(e);
+  });
+  window.addEventListener('touchmove', (e) => {
+    if (isDragging) handleDrag(e);
+  }, { passive: false });
+  window.addEventListener('touchend', () => {
+    isDragging = false;
+  });
+
+  // UI sync
+  function updateTimeOfDayUI() {
+    const t = todState.t;
+    const clockText = dialDiv.querySelector('.tod-dial-time');
+    if (clockText) clockText.textContent = _fmtClock(t);
+
+    const handle = dialDiv.querySelector('.tod-dial-handle');
+    if (handle) {
+      const angle = (t - 0.5) * 2 * Math.PI;
+      const cx = 50 + 40 * Math.sin(angle);
+      const cy = 50 - 40 * Math.cos(angle);
+      handle.setAttribute('cx', cx.toFixed(2));
+      handle.setAttribute('cy', cy.toFixed(2));
+    }
+
+    if (playBtn) {
+      playBtn.textContent = todState.auto ? '⏸' : '▶';
+      playBtn.title = todState.auto ? 'Pause Auto Cycle' : 'Play Auto Cycle';
+    }
+
+    // Highlight closest active preset button
+    const presets = [
+      { label: 'Dawn', t: 0.25 },
+      { label: 'Day', t: 0.50 },
+      { label: 'Dusk', t: 0.76 },
+      { label: 'Night', t: 0.00 },
+    ];
+    let closestPreset = null;
+    let minDiff = Infinity;
+    presets.forEach(p => {
+      let diff = Math.abs(t - p.t);
+      if (diff > 0.5) diff = 1.0 - diff;
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestPreset = p;
+      }
+    });
+
+    btns.forEach((btn, index) => {
+      if (presets[index].label === closestPreset.label && minDiff < 0.03) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+  window.updateTimeOfDayUI = updateTimeOfDayUI;
 
   // hide while the right-docked #debug panel is open (avoid overlap)
   const sync = () => { wrap.style.display = location.hash.toLowerCase().includes('debug') ? 'none' : 'flex'; };
@@ -2838,6 +2971,7 @@ function animate() {
     todState.t = (todState.t + delta / todState.cycleSeconds) % 1;
   }
   applyTimeOfDay(todState.t);
+  if (window.updateTimeOfDayUI) window.updateTimeOfDayUI();
   // amortized volumetric clouds (opt-in) — render BEFORE flagging the shadow
   // update so this RT pass doesn't consume the throttled shadow-map render
   if (vcfg.enabled) updateVolumetricClouds();

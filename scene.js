@@ -1819,14 +1819,8 @@ loader.load('models/po_expressive.glb', (gltf) => {
       child.castShadow = true;
       child.receiveShadow = true;
       if (child.material) {
-        // High-gloss reflective eyes, and matte fuzzy fur for the body/head
-        if (child.name.toLowerCase().includes('eye') || child.name.toLowerCase().includes('pupil')) {
-          child.material.roughness = 0.05;
-          child.material.metalness = 0.15;
-        } else {
-          child.material.roughness = 0.95; // matte fur
-          child.material.metalness = 0.0;
-        }
+        child.material.metalness = 0.0;
+        child.material.roughness = 0.8;
       }
       if (child.morphTargetDictionary && child.morphTargetDictionary[FACE_KEYS.smile] !== undefined) {
         faceMesh = child;
@@ -1843,17 +1837,6 @@ loader.load('models/po_expressive.glb', (gltf) => {
       }
     }
   });
-
-  // --- Cute baby panda proportions ---
-  if (bones.eyeL) bones.eyeL.scale.setScalar(1.65);
-  if (bones.eyeR) bones.eyeR.scale.setScalar(1.65);
-  if (bones.head) bones.head.scale.set(1.15, 1.15, 1.25);
-  if (bones.neck) bones.neck.scale.set(0.9, 0.7, 0.9);
-  if (bones.armL) bones.armL.scale.set(0.85, 0.85, 0.85);
-  if (bones.armR) bones.armR.scale.set(0.85, 0.85, 0.85);
-  if (bones.forearmL) bones.forearmL.scale.set(0.85, 0.85, 0.85);
-  if (bones.forearmR) bones.forearmR.scale.set(0.85, 0.85, 0.85);
-  if (bones.spine) bones.spine.scale.set(1.05, 0.9, 1.05);
 
   scene.add(pivot);
 
@@ -2350,9 +2333,9 @@ function animate() {
     }
     const currentJiggle = bellyJiggle.value + patJiggle;
 
-    const scaleX = 1.05 * (1.0 + currentJiggle * 0.35);
-    const scaleY = 0.90 * (breathScale - currentJiggle * 0.22);
-    const scaleZ = 1.05 * (1.0 + currentJiggle * 0.35);
+    const scaleX = 1.0 + currentJiggle * 0.35;
+    const scaleY = breathScale - currentJiggle * 0.22;
+    const scaleZ = 1.0 + currentJiggle * 0.35;
     bones.spine.scale.set(scaleX, scaleY, scaleZ);
   }
 
@@ -2751,9 +2734,9 @@ function animate() {
         if (elapsed >= 1.4 && elapsed <= 2.2) {
           const swallowT = (elapsed - 1.4) / 0.8;
           const bulge = Math.sin(swallowT * Math.PI) * 0.28;
-          bones.neck.scale.set(0.9 * (1.0 + bulge), 0.7, 0.9 * (1.0 + bulge));
+          bones.neck.scale.set(1.0 + bulge, 1.0, 1.0 + bulge);
         } else {
-          bones.neck.scale.set(0.9, 0.7, 0.9);
+          bones.neck.scale.set(1.0, 1.0, 1.0);
         }
       }
 

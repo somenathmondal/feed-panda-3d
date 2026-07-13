@@ -1679,7 +1679,78 @@ const eat = {
   chopstickVel: new THREE.Vector3(),
   chopstickAngVel: new THREE.Vector3(),
   originalDumplingScale: 1,
+  crumbsSpawned: [false, false, false, false],
 };
+
+// ── Belly jiggle spring physics ──
+const bellyJiggle = {
+  value: 0,
+  velocity: 0,
+  target: 0,
+  damping: 0.85,
+  stiffness: 0.18
+};
+
+function applyBellyJiggleImpulse(impulse) {
+  bellyJiggle.velocity += impulse;
+}
+
+function updateBellyJiggle(delta) {
+  const force = -bellyJiggle.stiffness * (bellyJiggle.value - bellyJiggle.target);
+  bellyJiggle.velocity += force;
+  bellyJiggle.velocity *= bellyJiggle.damping;
+  bellyJiggle.value += bellyJiggle.velocity * delta * 60;
+  bellyJiggle.value = clamp(bellyJiggle.value, -0.4, 0.6);
+}
+
+// ── Crumb particle system for chewing ──
+const crumbs = [];
+function spawnCrumbs(position, count = 8) {
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.SphereGeometry(0.015 + Math.random() * 0.015, 4, 4);
+    const mat = new THREE.MeshStandardMaterial({ 
+      color: 0xffedd5,
+      roughness: 0.9,
+      metalness: 0.0
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    mesh.position.copy(position);
+    mesh.position.x += (Math.random() - 0.5) * 0.15;
+    mesh.position.y += (Math.random() - 0.5) * 0.1;
+    mesh.position.z += (Math.random() - 0.5) * 0.15;
+    
+    scene.add(mesh);
+    crumbs.push({
+      mesh,
+      vel: new THREE.Vector3(
+        (Math.random() - 0.5) * 1.6,
+        1.0 + Math.random() * 1.5,
+        0.5 + Math.random() * 1.8
+      ),
+      life: 0.5 + Math.random() * 0.4
+    });
+  }
+}
+
+function updateCrumbs(delta) {
+  for (let i = crumbs.length - 1; i >= 0; i--) {
+    const c = crumbs[i];
+    c.life -= delta;
+    if (c.life <= 0) {
+      scene.remove(c.mesh);
+      c.mesh.geometry.dispose();
+      c.mesh.material.dispose();
+      crumbs.splice(i, 1);
+    } else {
+      c.vel.y -= 9.8 * delta;
+      c.mesh.position.addScaledVector(c.vel, delta);
+      c.mesh.rotation.x += delta * 5;
+      c.mesh.rotation.y += delta * 5;
+      c.mesh.scale.setScalar(c.life);
+    }
+  }
+}
 
 // ── Bones reference ──
 const bones = {};
@@ -2048,6 +2119,8 @@ function animate() {
 
   const delta = clock.getDelta();
   breathPhase += delta * 1.5;
+  updateBellyJiggle(delta);
+  updateCrumbs(delta);
 
   // ── Camera Lerp ──
   camera.position.lerp(cameraTargetPos, 0.02);
@@ -2248,10 +2321,22 @@ function animate() {
     bones.jaw.rotation.x = lerp(bones.jaw.rotation.x, rest.x + jawOpen + idleJaw, 0.1);
   }
 
-  // ── Idle breathing ──
+  // ── Idle breathing & Belly Jiggle Physics ──
   if (bones.spine) {
     const breathScale = 1 + Math.sin(breathPhase) * 0.004;
-    bones.spine.scale.y = breathScale;
+    let patJiggle = 0;
+    if (eat.state === 'lunge' && eat.timer > 0.8) {
+      const patPhase = clamp((eat.timer - 0.8) / 0.4, 0, 1);
+      patJiggle = Math.sin(eat.timer * 8) * 0.045 * patPhase;
+    } else if (eat.state === 'proud') {
+      patJiggle = Math.sin(eat.timer * 8) * 0.045;
+    }
+    const currentJiggle = bellyJiggle.value + patJiggle;
+
+    const scaleX = 1.0 + currentJiggle * 0.35;
+    const scaleY = breathScale - currentJiggle * 0.22;
+    const scaleZ = 1.0 + currentJiggle * 0.35;
+    bones.spine.scale.set(scaleX, scaleY, scaleZ);
   }
 
   // ── Grass wind (GPU shader uniform) ──
@@ -2584,6 +2669,7 @@ function animate() {
         eat.state = 'lunge';
         eat.timer = 0;
         if (chopsticksMesh) chopsticksMesh.visible = false;
+        applyBellyJiggleImpulse(-0.35);
         if (typeof trackEvent === 'function') trackEvent('feed_panda', { kind: 'interaction' }); // Po eats
 
         // ── Camera Zoom In (Triggered at Lunge) ──
@@ -2597,12 +2683,62 @@ function animate() {
       const duration = 3.5;
       const t = clamp(eat.timer / duration, 0, 1);
 
-      // ── Dumpling consumed in first chomp ──
-      const shrinkT = clamp(eat.timer / 0.25, 0, 1);
-      const shrinkEase = 1 - (1 - shrinkT) * (1 - shrinkT) * (1 - shrinkT);
-      dumpling.position.lerp(headPos, 0.3);
-      dumpling.scale.setScalar(Math.max(eat.originalDumplingScale * (1 - shrinkEase), 0.001));
-      if (shrinkT >= 1) dumpling.visible = false;
+      // ── Dumpling consumed in steps with each chomp ──
+      const elapsed = eat.timer;
+      let targetScale = eat.originalDumplingScale;
+      
+      if (elapsed < 0.1) {
+        dumpling.position.lerp(headPos, 0.25);
+        targetScale = eat.originalDumplingScale;
+      } else if (elapsed < 0.50) {
+        dumpling.position.lerp(headPos, 0.35);
+        targetScale = eat.originalDumplingScale * 0.7;
+      } else if (elapsed < 0.95) {
+        dumpling.position.lerp(headPos, 0.50);
+        targetScale = eat.originalDumplingScale * 0.45;
+      } else if (elapsed < 1.35) {
+        dumpling.position.lerp(headPos, 0.70);
+        targetScale = eat.originalDumplingScale * 0.20;
+      } else {
+        targetScale = 0.001;
+        if (dumpling.visible) dumpling.visible = false;
+      }
+      
+      dumpling.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.15);
+
+      // ── Spawning Crumbs at mouth snap points ──
+      const bites = [
+        { index: 0, start: 0.00, open: 1.3,  openDur: 0.10, snapDur: 0.06, pause: 0.34 },
+        { index: 1, start: 0.50, open: 0.6,  openDur: 0.08, snapDur: 0.05, pause: 0.32 },
+        { index: 2, start: 0.95, open: 0.35, openDur: 0.07, snapDur: 0.04, pause: 0.29 },
+        { index: 3, start: 1.35, open: 0.2,  openDur: 0.06, snapDur: 0.04, pause: 0.25 },
+      ];
+
+      bites.forEach((b) => {
+        if (elapsed >= b.start + b.openDur && !eat.crumbsSpawned[b.index]) {
+          eat.crumbsSpawned[b.index] = true;
+          const mouthPos = new THREE.Vector3();
+          if (bones.jaw) {
+            bones.jaw.getWorldPosition(mouthPos);
+          } else if (bones.head) {
+            bones.head.getWorldPosition(mouthPos);
+          }
+          mouthPos.z += 0.3;
+          spawnCrumbs(mouthPos, b.index === 0 ? 8 : 5);
+          applyBellyJiggleImpulse(b.index === 0 ? 0.22 : 0.12);
+        }
+      });
+
+      // ── Throat Swallow Bulge (travels down neck) ──
+      if (bones.neck) {
+        if (elapsed >= 1.4 && elapsed <= 2.2) {
+          const swallowT = (elapsed - 1.4) / 0.8;
+          const bulge = Math.sin(swallowT * Math.PI) * 0.28;
+          bones.neck.scale.set(1.0 + bulge, 1.0, 1.0 + bulge);
+        } else {
+          bones.neck.scale.set(1.0, 1.0, 1.0);
+        }
+      }
 
       // ── Phase blends ──
       const chompPhase = clamp(1 - (eat.timer - 1.7) / 0.3, 0, 1); // 1→0 from 1.7s to 2.0s (chomps fade)
@@ -2632,13 +2768,6 @@ function animate() {
 
       // ── Jaw: 4 chomps with Y/Z for natural chewing, then smile ──
       if (bones.jaw && restRotations.jaw) {
-        const bites = [
-          { start: 0.00, open: 1.3,  openDur: 0.10, snapDur: 0.06, pause: 0.34 },
-          { start: 0.50, open: 0.6,  openDur: 0.08, snapDur: 0.05, pause: 0.32 },
-          { start: 0.95, open: 0.35, openDur: 0.07, snapDur: 0.04, pause: 0.29 },
-          { start: 1.35, open: 0.2,  openDur: 0.06, snapDur: 0.04, pause: 0.25 },
-        ];
-        const elapsed = eat.timer;
         let jawOpenTarget = restRotations.jaw.x + 0.02;
         let biteActive = false;
 
@@ -2660,14 +2789,12 @@ function animate() {
           }
         }
 
-        // Broader smile after chomps fade
         const smile = smilePhase * 0.25;
         bones.jaw.rotation.x = jawOpenTarget + smile;
 
-        // Jaw Y/Z — lateral shift + roll during chewing for natural motion
         const jawY = biteActive
           ? Math.sin(elapsed * 6.5) * 0.04 + Math.sin(elapsed * 3.2 + 0.7) * 0.02
-          : smilePhase * 0.02; // settle to slight offset for smile
+          : smilePhase * 0.02;
         const jawZ = biteActive
           ? Math.sin(elapsed * 4.8 + 1.2) * 0.04
           : 0;
@@ -2675,23 +2802,15 @@ function animate() {
         bones.jaw.rotation.z = lerp(bones.jaw.rotation.z, restRotations.jaw.z + jawZ, 0.15);
       }
 
-      // ── Eyes: squeeze on first bite → relax → wide + happy during pat ──
+      // ── Eyes: lock near neutral/mouth, eyelids squinted/happy via morphs ──
       [bones.eyeL, bones.eyeR].forEach((eye) => {
         if (!eye) return;
         const key = eye === bones.eyeL ? 'eyeL' : 'eyeR';
         const rest = restRotations[key];
-        const drift = Math.sin(eat.timer * 1.5 + (key === 'eyeL' ? 0 : 0.5)) * 0.04;
-        let eyeTarget;
-        if (eat.timer < 0.3) {
-          eyeTarget = rest.x + 0.4; // squeeze shut
-        } else {
-          // Blend from relaxed-down to wide-open
-          const relaxed = rest.x + 0.15 + drift;
-          const wide = rest.x - 0.15 + drift * 0.3;
-          eyeTarget = relaxed + (wide - relaxed) * smilePhase;
-        }
-        eye.rotation.x = lerp(eye.rotation.x, eyeTarget, eat.timer < 0.3 ? 0.2 : 0.06);
-        eye.rotation.y = lerp(eye.rotation.y, rest.y + drift * 0.3, 0.04);
+        const drift = Math.sin(eat.timer * 1.5 + (key === 'eyeL' ? 0 : 0.5)) * 0.03;
+        const eyeTarget = rest.x + 0.08 + drift;
+        eye.rotation.x = lerp(eye.rotation.x, eyeTarget, 0.08);
+        eye.rotation.y = lerp(eye.rotation.y, rest.y + drift * 0.3, 0.08);
       });
 
       // ── Arms: eat pose (debug) during chomp, crossfade to proud (debug) for belly pat ──
@@ -2924,6 +3043,7 @@ function animate() {
 
         eat.state = 'tracking';
         eat.timer = 0;
+        eat.crumbsSpawned = [false, false, false, false];
       }
     }
   }
@@ -2967,8 +3087,24 @@ function animate() {
   // ── Face morphs: big smile + happy eyes while chewing/proud ──
   if (faceMesh) {
     let smileTarget = 0, eyesTarget = 0;
-    if (eat.state === 'chewing') { smileTarget = 0.35; eyesTarget = 0.25; }
-    else if (eat.state === 'proud') { smileTarget = 1.0; eyesTarget = 1.0; }
+    if (eat.state === 'anticipation') {
+      smileTarget = 0.5;
+      eyesTarget = 0.6;
+    } else if (eat.state === 'lunge') {
+      if (eat.timer < 0.3) {
+        smileTarget = 0.4;
+        eyesTarget = 0.85;
+      } else {
+        smileTarget = 0.85;
+        eyesTarget = 0.7;
+      }
+    } else if (eat.state === 'proud') {
+      smileTarget = 1.0;
+      eyesTarget = 1.0;
+    } else if (eat.state === 'respawn') {
+      smileTarget = 0;
+      eyesTarget = 0;
+    }
     const dict = faceMesh.morphTargetDictionary;
     const inf = faceMesh.morphTargetInfluences;
     const si = dict[FACE_KEYS.smile];
